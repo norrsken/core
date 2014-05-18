@@ -697,24 +697,8 @@ static int wproc_query_handler(int sd, char *buf, unsigned int len)
 	return 400;
 }
 
-static int spawn_core_worker(void)
-{
-	char *argvec[] = {naemon_binary_path, "--worker", qh_socket_path ? qh_socket_path : DEFAULT_QUERY_SOCKET, NULL};
-	int ret;
-
-	if ((ret = spawn_helper(argvec)) < 0)
-		logit(NSLOG_RUNTIME_ERROR, TRUE, "wproc: Failed to launch core worker: %s\n", strerror(errno));
-	else
-		wproc_num_workers_spawned++;
-
-	return ret;
-}
-
-
 int init_workers(int desired_workers)
 {
-	int i;
-
 	/*
 	 * we register our query handler before launching workers,
 	 * so other workers can join us whenever they're ready
@@ -724,35 +708,6 @@ int init_workers(int desired_workers)
 		logit(NSLOG_INFO_MESSAGE, TRUE, "wproc: Successfully registered manager as @wproc with query handler\n");
 	else
 		logit(NSLOG_RUNTIME_ERROR, TRUE, "wproc: Failed to register manager with query handler\n");
-
-	if (desired_workers <= 0) {
-		int cpus = online_cpus();
-
-		if (desired_workers < 0) {
-			desired_workers = cpus - desired_workers;
-		}
-		if (desired_workers <= 0) {
-			desired_workers = cpus * 1.5;
-			/* min 4 workers, as it's tested and known to work */
-			if (desired_workers < 4)
-				desired_workers = 4;
-			else if (desired_workers > 48) {
-				/* don't go crazy in NASA's network (1024 cores) */
-				desired_workers = 48;
-			}
-		}
-	}
-	wproc_num_workers_desired = desired_workers;
-
-	if (workers_alive() == desired_workers)
-		return 0;
-
-	/* can't shrink the number of workers (yet) */
-	if (desired_workers < (int)workers.len)
-		return -1;
-
-	for (i = 0; i < desired_workers; i++)
-		spawn_core_worker();
 
 	return 0;
 }
