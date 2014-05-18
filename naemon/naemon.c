@@ -135,7 +135,7 @@ static int nagios_core_worker(const char *path)
 
 	ret = nsock_printf_nul(sd, "@wproc register name=Core Worker %d;pid=%d", getpid(), getpid());
 	if (ret < 0) {
-		printf("Failed to register as worker.\n");
+		printf("Failed to register as worker: %s.\n", strerror(errno));
 		return 1;
 	}
 

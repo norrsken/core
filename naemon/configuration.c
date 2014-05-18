@@ -70,7 +70,7 @@ int read_main_config_file(const char *main_config_file)
 
 	/* open the config file for reading */
 	if ((thefile = mmap_fopen(main_config_file)) == NULL) {
-		logit(NSLOG_CONFIG_ERROR, TRUE, "Error: Cannot open main configuration file '%s' for reading!", main_config_file);
+		logit(NSLOG_CONFIG_ERROR, TRUE, "Error: Cannot open main configuration file '%s' for reading: %s", main_config_file, strerror(errno));
 		return ERROR;
 	}
 
