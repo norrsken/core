@@ -343,9 +343,11 @@ int main(int argc, char **argv)
 			printf("   Read main config file okay...\n");
 
 		/* drop privileges */
-		if ((result = drop_privileges(naemon_user, naemon_group)) == ERROR) {
-			printf("   Failed to drop privileges.  Aborting.");
-			exit(EXIT_FAILURE);
+		if (daemon_mode == TRUE) {
+			if ((result = drop_privileges(naemon_user, naemon_group)) == ERROR) {
+				printf("   Failed to drop privileges.  Aborting.");
+				exit(EXIT_FAILURE);
+			}
 		}
 
 		/*
@@ -499,12 +501,14 @@ int main(int argc, char **argv)
 		asprintf(&mac->x[MACRO_PROCESSSTARTTIME], "%lu", (unsigned long)program_start);
 
 		/* drop privileges */
-		if (drop_privileges(naemon_user, naemon_group) == ERROR) {
+		if (daemon_mode == TRUE) {
+			if (drop_privileges(naemon_user, naemon_group) == ERROR) {
 
-			logit(NSLOG_PROCESS_INFO | NSLOG_RUNTIME_ERROR | NSLOG_CONFIG_ERROR, TRUE, "Failed to drop privileges.  Aborting.");
+				logit(NSLOG_PROCESS_INFO | NSLOG_RUNTIME_ERROR | NSLOG_CONFIG_ERROR, TRUE, "Failed to drop privileges.  Aborting.");
 
-			cleanup();
-			exit(ERROR);
+				cleanup();
+				exit(ERROR);
+			}
 		}
 
 		if (test_configured_paths() == ERROR) {
