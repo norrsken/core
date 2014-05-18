@@ -96,21 +96,21 @@ int iobroker_max_usable_fds(void)
 #if defined(RLIMIT_NOFILE)
 	struct rlimit rlim;
 	getrlimit(RLIMIT_NOFILE, &rlim);
-	return (unsigned long)rlim.rlim_cur;
+	if (rlim.rlim_cur != (rlim_t)RLIM_INFINITY)
+		return (unsigned long)rlim.rlim_cur;
 #elif defined(_SC_OPEN_MAX)
 	return (unsigned long)sysconf(_SC_OPEN_MAX);
 #elif defined(OPEN_MAX)
 	return (unsigned long)OPEN_MAX;
 #elif defined(_POSIX_OPEN_MAX)
 	return (unsigned long)_POSIX_OPEN_MAX;
-#else
+#endif
 	/*
 	 * No sysconf macros, no rlimit and no hopefully-sane
 	 * defaults so we just guess. This might be completely
 	 * wrong and could cause segfaults
 	 */
 	return 256UL;
-#endif
 }
 
 
@@ -171,6 +171,7 @@ struct iobroker_set *iobroker_create(void)
 
 error_out:
 	if (iobs) {
+		int errsv = errno;
 #ifdef IOBROKER_USES_EPOLL
 		close(iobs->epfd);
 		if (iobs->ep_events)
@@ -179,6 +180,7 @@ error_out:
 		if (iobs->iobroker_fds)
 			free(iobs->iobroker_fds);
 		free(iobs);
+		errno = errsv;
 	}
 	return NULL;
 }
