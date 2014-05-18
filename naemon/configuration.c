@@ -145,7 +145,7 @@ int read_main_config_file(const char *main_config_file)
 			num_check_workers = atoi(value);
 		else if (!strcmp(variable, "query_socket")) {
 			my_free(qh_socket_path);
-			qh_socket_path = nspath_absolute(value, config_file_dir);
+			qh_socket_path = strdup(value);
 		} else if (!strcmp(variable, "log_file")) {
 
 			if (strlen(value) > MAX_FILENAME_LENGTH - 1) {

@@ -2,6 +2,8 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/un.h>
@@ -25,6 +27,78 @@ const char *nsock_strerror(int code)
 	}
 
 	return "Unknown error";
+}
+
+int nsock_connect(const char *path, unsigned int flags)
+{
+	if (path[0] == '/') {
+		return nsock_unix(path, flags);
+	} else if (!strncmp(path, "tcp://[", 7)) {
+		//return nsock_ip6();
+	} else if (!strncmp(path, "tcp://", 6)) {
+		char *ip, *portstr;
+		int port;
+		ip = strdup(path + 6);
+		portstr = strchr(ip, ':');
+		if (!portstr)
+			return NSOCK_EINVAL;
+		*portstr = 0;
+		portstr++;
+		port = atoi(portstr);
+		return nsock_ip4(ip, port, flags);
+	}
+	return NSOCK_EINVAL;
+}
+
+int nsock_ip4(const char *ip, int port, unsigned int flags)
+{
+	struct sockaddr_in sa;
+	int mode, sock;
+
+	if (!port)
+		return NSOCK_EINVAL;
+
+	if (flags & NSOCK_TCP)
+		mode = SOCK_STREAM;
+	else if (flags & NSOCK_UDP)
+		mode = SOCK_DGRAM;
+	else
+		return NSOCK_EINVAL;
+
+	if (inet_aton(ip, &sa.sin_addr) == 0)
+		return NSOCK_EINVAL;
+
+	if ((sock = socket(AF_INET, mode, 0)) < 0)
+		return NSOCK_ESOCKET;
+
+	sa.sin_family = AF_INET;
+	sa.sin_port = htons(port);
+
+	if (flags & NSOCK_CONNECT) {
+		if (connect(sock, (struct sockaddr *)&sa, sizeof(sa)) < 0) {
+			close(sock);
+			return NSOCK_ECONNECT;
+		}
+		return sock;
+	} else {
+		if (bind(sock, (struct sockaddr *)&sa, sizeof(sa)) < 0) {
+			close(sock);
+			return NSOCK_EBIND;
+		}
+	}
+
+	if (!(flags & NSOCK_BLOCK) && fcntl(sock, F_SETFL, O_NONBLOCK) < 0)
+		return NSOCK_EFCNTL;
+
+	if (flags & NSOCK_UDP)
+		return sock;
+
+	if (listen(sock, 3) < 0) {
+		close(sock);
+		return NSOCK_ELISTEN;
+	}
+
+	return sock;
 }
 
 int nsock_unix(const char *path, unsigned int flags)

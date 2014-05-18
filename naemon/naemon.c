@@ -126,7 +126,7 @@ static int nagios_core_worker(const char *path)
 
 	set_loadctl_defaults();
 
-	sd = nsock_unix(path, NSOCK_TCP | NSOCK_CONNECT);
+	sd = nsock_connect(path, NSOCK_TCP | NSOCK_CONNECT);
 	if (sd < 0) {
 		printf("Failed to connect to query socket '%s': %s: %s\n",
 		       path, nsock_strerror(sd), strerror(errno));

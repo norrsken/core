@@ -50,6 +50,8 @@ extern const char *nsock_strerror(int code);
  * @return An NSOCK_E macro on errors, the created socket on succes
  */
 extern int nsock_unix(const char *path, unsigned int flags);
+int nsock_ip4(const char *address, int port, unsigned int flags);
+int nsock_connect(const char *path, unsigned int flags);
 
 /**
  * Write a nul-terminated message to the socket pointed to by sd.
