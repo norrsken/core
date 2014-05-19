@@ -145,7 +145,6 @@ int sig_id = 0;
 
 int daemon_dumps_core = TRUE;
 
-int max_parallel_service_checks = DEFAULT_MAX_PARALLEL_SERVICE_CHECKS;
 int currently_running_service_checks = 0;
 int currently_running_host_checks = 0;
 
@@ -2931,7 +2930,6 @@ int reset_variables(void)
 
 	last_log_rotation = 0L;
 
-	max_parallel_service_checks = DEFAULT_MAX_PARALLEL_SERVICE_CHECKS;
 	currently_running_service_checks = 0;
 
 	enable_notifications = TRUE;
