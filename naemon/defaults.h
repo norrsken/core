@@ -5,7 +5,7 @@
 /******************* DEFAULT VALUES *******************/
 
 #define DEFAULT_LOG_LEVEL					1	/* log all events to main log file */
-#define DEFAULT_USE_SYSLOG					1	/* log events to syslog? 1=yes, 0=no */
+#define DEFAULT_USE_SYSLOG					0	/* log events to syslog? 1=yes, 0=no */
 #define DEFAULT_SYSLOG_LEVEL					2	/* log only severe events to syslog */
 
 #define DEFAULT_NOTIFICATION_LOGGING				1	/* log notification events? 1=yes, 0=no */
