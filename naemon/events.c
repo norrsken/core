@@ -82,6 +82,7 @@ void init_timing_loop(void)
 	current_time = now.tv_sec;
 	srand((now.tv_sec << 10) ^ now.tv_usec);
 
+	compensate_for_system_time_change(last_program_stop, current_time);
 
 	/******** GET BASIC HOST/SERVICE INFO  ********/
 
@@ -181,7 +182,7 @@ void init_timing_loop(void)
 			continue;
 		}
 
-		temp_service->next_check = current_time + ranged_urand(0, check_window(temp_service));
+		temp_service->next_check = current_time + ranged_urand(0, check_window(temp_service) / 5);
 		log_debug_info(DEBUGL_EVENTS, 2, "Preferred Check Time: %lu --> %s", (unsigned long)temp_service->next_check, ctime(&temp_service->next_check));
 
 		/* make sure the service can actually be scheduled when we want */
@@ -246,7 +247,7 @@ void init_timing_loop(void)
 			continue;
 		}
 
-		temp_host->next_check = current_time + ranged_urand(0, check_window(temp_host));
+		temp_host->next_check = current_time + ranged_urand(0, check_window(temp_host) / 5);
 
 		log_debug_info(DEBUGL_EVENTS, 2, "Preferred Check Time: %lu --> %s", (unsigned long)temp_host->next_check, ctime(&temp_host->next_check));
 
