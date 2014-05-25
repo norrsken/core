@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -230,7 +231,7 @@ int iobroker_register(iobroker_set *iobs, int fd, void *arg, int (*handler)(int,
 #ifdef IOBROKER_USES_EPOLL
 	return reg_one(iobs, fd, EPOLLIN | EPOLLRDHUP, arg, handler);
 #else
-	return reg_one(iobs, fd, POLLIN, arg, handler);
+	return reg_one(iobs, fd, POLLIN | POLLRDHUP | POLLNVAL, arg, handler);
 #endif
 }
 
@@ -239,7 +240,7 @@ int iobroker_register_out(iobroker_set *iobs, int fd, void *arg, int (*handler)(
 #ifdef IOBROKER_USES_EPOLL
 	return reg_one(iobs, fd, EPOLLOUT, arg, handler);
 #else
-	return reg_one(iobs, fd, POLLOUT, arg, handler);
+	return reg_one(iobs, fd, POLLOUT | POLLHUP | POLLNVAL | POLLERR, arg, handler);
 #endif
 }
 
@@ -422,28 +423,29 @@ int iobroker_poll(iobroker_set *iobs, int timeout)
 	{
 		int p = 0;
 
+		memset(iobs->pfd, 0, sizeof(iobs->pfd) * sizeof(iobs->pfd[0]));
+
 		for (i = 0; i < iobs->max_fds; i++) {
 			if (!iobs->iobroker_fds[i])
 				continue;
 			iobs->pfd[p].fd = iobs->iobroker_fds[i]->fd;
-			iobs->pfd[p].events = POLLIN;
+			iobs->pfd[p].events = iobs->iobroker_fds[i]->events;
+			assert(iobs->iobroker_fds[i]->fd == i);
 			p++;
 		}
-		nfds = poll(iobs->pfd, iobs->num_fds, timeout);
+		nfds = poll(iobs->pfd, p, timeout);
 		if (nfds < 0) {
 			return IOBROKER_ELIB;
+		} else if (nfds == 0) {
+			return 0;
 		}
-		for (i = 0; i < iobs->num_fds; i++) {
+		for (i = 0; i < p; i++) {
 			iobroker_fd *s;
-			if ((iobs->pfd[i].revents & POLLIN) != POLLIN) {
-				continue;
-			}
-
 			s = iobs->iobroker_fds[iobs->pfd[i].fd];
-			if (!s) {
-				/* this should be logged somehow */
+			assert(s);
+			if (iobs->pfd[i].revents == 0)
 				continue;
-			}
+
 			s->handler(s->fd, (int)iobs->pfd[i].revents, s->arg);
 			ret++;
 		}
