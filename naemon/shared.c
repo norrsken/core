@@ -188,11 +188,14 @@ mmapfile *mmap_fopen(const char *filename)
 
 	/* only mmap() if we have a file greater than 0 bytes */
 	if (file_size > 0) {
-
+#if defined(HAVE_MMAP)
 		/* mmap() the file - allocate one extra byte for processing zero-byte files */
 		if ((mmap_buf =
 		         (void *)mmap(0, file_size, PROT_READ, MAP_PRIVATE, fd,
 		                      0)) == MAP_FAILED) {
+#else
+		if ((mmap_buf = fdopen(fd, "r")) == NULL) {
+#endif
 			close(fd);
 			my_free(new_mmapfile);
 			return NULL;
@@ -219,9 +222,13 @@ int mmap_fclose(mmapfile *temp_mmapfile)
 	if (temp_mmapfile == NULL)
 		return ERROR;
 
+#if defined(HAVE_MMAP)
 	/* un-mmap() the file */
 	if (temp_mmapfile->file_size > 0L)
 		munmap(temp_mmapfile->mmap_buf, temp_mmapfile->file_size);
+#else
+	fclose(temp_mmapfile->mmap_buf);
+#endif
 
 	/* close the file */
 	close(temp_mmapfile->fd);
@@ -238,8 +245,10 @@ int mmap_fclose(mmapfile *temp_mmapfile)
 char *mmap_fgets(mmapfile *temp_mmapfile)
 {
 	char *buf = NULL;
+#if defined(HAVE_MMAP)
 	unsigned long x = 0L;
 	int len = 0;
+#endif
 
 	if (temp_mmapfile == NULL)
 		return NULL;
@@ -252,6 +261,7 @@ char *mmap_fgets(mmapfile *temp_mmapfile)
 	if (temp_mmapfile->current_position >= temp_mmapfile->file_size)
 		return NULL;
 
+#if defined(HAVE_MMAP)
 	/* find the end of the string (or buffer) */
 	for (x = temp_mmapfile->current_position; x < temp_mmapfile->file_size;
 	     x++) {
@@ -276,6 +286,15 @@ char *mmap_fgets(mmapfile *temp_mmapfile)
 
 	/* update the current position */
 	temp_mmapfile->current_position = x;
+#else
+	if ((buf = (char *)malloc(1024)) == NULL)
+		return NULL;
+
+	fgets(buf, 1024, temp_mmapfile->mmap_buf);
+
+	/* update the current position */
+	temp_mmapfile->current_position += strlen(buf);
+#endif
 
 	/* increment the current line */
 	temp_mmapfile->current_line++;
