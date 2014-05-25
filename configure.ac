@@ -117,13 +117,6 @@ AC_FUNC_FORK
 AC_FUNC_MMAP
 AC_FUNC_WAIT3
 
-# We expect full C89 and almost-full POSIX.1-2001 compliance where
-# we're compiled. That covers all linuxes, bsd's and solaris boxen
-# in use today, and saves us the hassle of bothering about Irix,
-# AIX and other really ancient crap systems.
-# Don't add functions to this list that are in either C89 or in
-# both POSIX.1-2001 and C99. Just let the compile fail instead.
-# Also, obviously, don't add functions that aren't used in the code.
 AC_CHECK_FUNCS([dup2 floor ftruncate get_current_dir_name initgroups \
 	munmap pow putenv realpath regcomp select setenv strncasecmp \
 	strrchr tzset unsetenv])
