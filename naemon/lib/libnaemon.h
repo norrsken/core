@@ -16,10 +16,10 @@
 #include "runcmd.h"
 #include "bitmap.h"
 #include "dkhash.h"
-#include "worker.h"
 #include "skiplist.h"
 #include "rbtree.h"
 #include "nsock.h"
+#include "worker.h"
 #include "nspath.h"
 #include "snprintf.h"
 #endif /* LIB_libnaemon_h__ */

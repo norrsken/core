@@ -23,7 +23,7 @@ struct query_handler {
 };
 
 static struct query_handler *qhandlers;
-static int qh_listen_sock = -1; /* the listening socket */
+static nsock_sock *qh_listen_sock; /* the listening socket */
 static unsigned int qh_running;
 unsigned int qh_max_running = 0; /* defaults to unlimited */
 static dkhash_table *qh_table;
@@ -95,13 +95,14 @@ static int qh_input(int sd, int events, void *ioc_)
 	iocache *ioc = (iocache *)ioc_;
 
 	/* input on main socket, so accept one */
-	if (sd == qh_listen_sock) {
-		struct sockaddr sa;
-		socklen_t slen = 0;
+	if (sd == nsock_get_fd(qh_listen_sock)) {
 		int nsd;
 
-		memset(&sa, 0, sizeof(sa)); /* shut valgrind up */
-		nsd = accept(sd, &sa, &slen);
+		nsd = nsock_accept(qh_listen_sock);
+		if (nsd < 0) {
+			logit(NSLOG_RUNTIME_ERROR, TRUE, "Couldn't accept connection: %s", strerror(errno));
+			return 0;
+		}
 		if (qh_max_running && qh_running >= qh_max_running) {
 			nsock_printf(nsd, "503: Server full");
 			close(nsd);
@@ -127,7 +128,9 @@ static int qh_input(int sd, int events, void *ioc_)
 		}
 
 		/* make it non-blocking, but leave kernel buffers unchanged */
-		worker_set_sockopts(nsd, 0);
+		if (worker_set_sockopts(nsd, 0)) {
+			logit(NSLOG_RUNTIME_ERROR, TRUE, "Failed to set options on accepted socket.");
+		}
 		qh_running++;
 		return 0;
 	} else {
@@ -409,41 +412,50 @@ static int qh_core(int sd, char *buf, unsigned int len)
 
 int qh_init(const char *path)
 {
-	int result, old_umask;
+	int result, old_umask, sd;
 
-	if (qh_listen_sock >= 0)
-		iobroker_close(nagios_iobs, qh_listen_sock);
+	if (qh_listen_sock) {
+		iobroker_close(nagios_iobs, nsock_get_fd(qh_listen_sock));
+		nsock_destroy(qh_listen_sock);
+	}
 
 	if (!path) {
 		logit(NSLOG_RUNTIME_ERROR, TRUE, "qh: query_socket is NULL. What voodoo is this?\n");
 		return ERROR;
 	}
 
+	result = nsock_create(path, NSOCK_TCP | NSOCK_UNLINK, &qh_listen_sock);
+	if (result < 0) {
+		logit(NSLOG_RUNTIME_ERROR, TRUE, "qh: Failed to init socket '%s'. %s: %s\n",
+		      path, nsock_strerror(result), strerror(errno));
+		return ERROR;
+	}
+	sd = nsock_get_fd(qh_listen_sock);
 	old_umask = umask(0117);
 	errno = 0;
-	qh_listen_sock = nsock_connect(path, NSOCK_TCP | NSOCK_UNLINK);
+	result = nsock_listen(qh_listen_sock);
 	umask(old_umask);
-	if (qh_listen_sock < 0) {
+	if (result < 0) {
 		logit(NSLOG_RUNTIME_ERROR, TRUE, "qh: Failed to init socket '%s'. %s: %s\n",
-		      path, nsock_strerror(qh_listen_sock), strerror(errno));
+		      path, nsock_strerror(result), strerror(errno));
 		return ERROR;
 	}
 
 	/* plugins shouldn't have this socket */
-	(void)fcntl(qh_listen_sock, F_SETFD, FD_CLOEXEC);
+	(void)fcntl(sd, F_SETFD, FD_CLOEXEC);
 
 	/* most likely overkill, but it's small, so... */
 	if (!(qh_table = dkhash_create(1024))) {
 		logit(NSLOG_RUNTIME_ERROR, TRUE, "qh: Failed to create hash table\n");
-		close(qh_listen_sock);
+		nsock_destroy(qh_listen_sock);
 		return ERROR;
 	}
 
 	errno = 0;
-	result = iobroker_register(nagios_iobs, qh_listen_sock, NULL, qh_input);
+	result = iobroker_register(nagios_iobs, sd, NULL, qh_input);
 	if (result < 0) {
 		dkhash_destroy(qh_table);
-		close(qh_listen_sock);
+		nsock_destroy(qh_listen_sock);
 		logit(NSLOG_RUNTIME_ERROR, TRUE, "qh: Failed to register socket with io broker: %s; errno=%d: %s\n", iobroker_strerror(result), errno, strerror(errno));
 		return ERROR;
 	}

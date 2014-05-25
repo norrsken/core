@@ -32,6 +32,8 @@
 
 NAGIOS_BEGIN_DECL
 
+typedef struct nsock_sock nsock_sock;
+
 /**
  * Grab an error string relating to nsock_unix()
  * @param code The error code return by the nsock library
@@ -39,19 +41,12 @@ NAGIOS_BEGIN_DECL
  */
 extern const char *nsock_strerror(int code);
 
-/**
- * Create or connect to a unix socket
- * To control permissions on sockets when NSOCK_LISTEN is specified,
- * callers will have to modify their umask() before (and possibly
- * after) the nsock_unix() call.
- *
- * @param path The path to connect to or create
- * @param flags Various options controlling the mode of the socket
- * @return An NSOCK_E macro on errors, the created socket on succes
- */
-extern int nsock_unix(const char *path, unsigned int flags);
-int nsock_ip4(const char *address, int port, unsigned int flags);
-int nsock_connect(const char *path, unsigned int flags);
+int nsock_create(const char *path, unsigned int flags, struct nsock_sock **sock);
+int nsock_connect(struct nsock_sock *sock);
+int nsock_listen(struct nsock_sock *sock);
+int nsock_get_fd(struct nsock_sock *sock);
+void nsock_destroy(struct nsock_sock *sock);
+int nsock_accept(struct nsock_sock *sock);
 
 /**
  * Write a nul-terminated message to the socket pointed to by sd.

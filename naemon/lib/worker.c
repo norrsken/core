@@ -8,6 +8,13 @@
 #include <time.h>
 #include <pwd.h>
 #include "libnaemon.h"
+#if defined(IOBROKER_USES_EPOLL)
+#include <epoll.h>
+#elif !defined(IOBROKER_USES_SELECT)
+#include <poll.h>
+#else
+#include <sys/select.h>
+#endif
 
 #define MSG_DELIM "\1\0\0" /**< message limiter */
 #define MSG_DELIM_LEN (sizeof(MSG_DELIM)) /**< message delimiter length */
@@ -27,7 +34,7 @@ struct execution_information {
 static iobroker_set *iobs;
 static squeue_t *sq;
 static unsigned int started, running_jobs, timeouts, reapable;
-static int master_sd;
+static nsock_sock *master_sock;
 static int parent_pid;
 static fanout_table *ptab;
 
@@ -87,7 +94,7 @@ static void wlog(const char *fmt, ...)
 	to_send = len + MSG_DELIM_LEN + 1;
 	lmsg[len] = 0;
 	memcpy(&lmsg[len + 1], MSG_DELIM, MSG_DELIM_LEN);
-	if (write(master_sd, lmsg, to_send) < 0) {
+	if (write(nsock_get_fd(master_sock), lmsg, to_send) < 0) {
 		if (errno == EPIPE) {
 			/* master has died or abandoned us, so exit */
 			exit_worker(1, "Failed to write() to master");
@@ -109,7 +116,7 @@ static void job_error(child_process *cp, struct kvvec *kvv, const char *fmt, ...
 		kvvec_addkv(kvv, "job_id", mkstr("%d", cp->id));
 	}
 	kvvec_addkv_wlen(kvv, "error_msg", 9, msg, len);
-	ret = worker_send_kvvec(master_sd, kvv);
+	ret = worker_send_kvvec(nsock_get_fd(master_sock), kvv);
 	if (ret < 0 && errno == EPIPE)
 		exit_worker(1, "Failed to send job error key/value vector to master");
 	kvvec_destroy(kvv, 0);
@@ -287,7 +294,7 @@ int finish_job(child_process *cp, int reason)
 	}
 	kvvec_addkv_wlen(&resp, "outerr", 6, cp->outerr.buf, cp->outerr.len);
 	kvvec_addkv_wlen(&resp, "outstd", 6, cp->outstd.buf, cp->outstd.len);
-	ret = worker_send_kvvec(master_sd, &resp);
+	ret = worker_send_kvvec(nsock_get_fd(master_sock), &resp);
 	if (ret < 0 && errno == EPIPE)
 		exit_worker(1, "Failed to send kvvec struct to master");
 
@@ -617,7 +624,9 @@ static void spawn_job(struct kvvec *kvv, int(*cb)(child_process *))
 	}
 }
 
-static int receive_command(int sd, int events, void *arg)
+static int register_worker(int sd, int events, void *cb);
+
+static int receive_command(int sd, int events, void *cb)
 {
 	int ioc_ret;
 	char *buf;
@@ -626,14 +635,26 @@ static int receive_command(int sd, int events, void *arg)
 	if (!ioc) {
 		ioc = iocache_create(512 * 1024);
 	}
+#if defined(IOBROKER_USES_EPOLL)
+	if (events != EPOLLIN)
+#elif defined(IOBROKER_USES_SELECT)
+	// TODO: select backend, but it doesn't work anyway
+#else
+	if (events != POLLIN)
+#endif
+	{
+		iobroker_unregister(iobs, nsock_get_fd(master_sock));
+		iobroker_register(iobs, nsock_get_fd(master_sock), cb, register_worker);
+		if (nsock_connect(master_sock)) {
+			wlog("Failed to connect to query socket: %s: %s\n",
+				   nsock_strerror(nsock_get_fd(master_sock)), strerror(errno));
+			nsock_destroy(master_sock);
+			exit(1);
+		}
+	}
 	ioc_ret = iocache_read(ioc, sd);
 
-	/* master closed the connection, so we exit */
-	if (ioc_ret == 0) {
-		iobroker_close(iobs, sd);
-		exit_worker(0, NULL);
-	}
-	if (ioc_ret < 0) {
+	if (ioc_ret <= 0) {
 		/* XXX: handle this somehow */
 	}
 
@@ -652,7 +673,7 @@ static int receive_command(int sd, int events, void *arg)
 		/* we must copy vars here, as we preserve them for the response */
 		kvv = buf2kvvec(buf, (unsigned int)size, KV_SEP, PAIR_SEP, KVVEC_COPY);
 		if (kvv)
-			spawn_job(kvv, arg);
+			spawn_job(kvv, cb);
 	}
 
 	return 0;
@@ -679,11 +700,90 @@ int set_socket_options(int sd, int bufsize)
 	return worker_set_sockopts(sd, bufsize);
 }
 
-void enter_worker(int sd, int (*cb)(child_process *))
+static int register_worker_recv(int sd, int events, void *cb)
+{
+	int ret;
+	char response[128];
+	iobroker_unregister(iobs, nsock_get_fd(master_sock));
+
+	ret = read(sd, response, 3);
+	if (ret != 3) {
+		wlog("Failed to read response from wproc manager - retrying. Got %i: %s\n", ret, strerror(errno));
+		iobroker_register_out(iobs, nsock_get_fd(master_sock), cb, register_worker);
+		return 1;
+	}
+	if (memcmp(response, "OK", 3)) {
+		read(sd, response + 3, sizeof(response) - 4);
+		response[sizeof(response) - 2] = 0;
+		wlog("Failed to register with wproc manager: %s\n", response);
+		return 1;
+	}
+
+	iobroker_register(iobs, nsock_get_fd(master_sock), cb, receive_command);
+	return 0;
+}
+
+static int register_worker(int sd, int events, void *cb)
+{
+	int ret;
+
+	ret = nsock_printf_nul(sd, "@wproc register name=Core Worker %d;pid=%d", getpid(), getpid());
+	if (ret < 0) {
+		wlog("Failed to register as worker: %s.\n", strerror(errno));
+		return 1;
+	}
+
+	iobroker_unregister(iobs, nsock_get_fd(master_sock));
+	iobroker_register_out(iobs, nsock_get_fd(master_sock), cb, register_worker_recv);
+	return 0;
+}
+
+static void run_events(void)
+{
+	int poll_time = -1;
+
+	/* check for timed out jobs */
+	while (running_jobs) {
+		child_process *cp;
+		struct timeval now;
+		const struct timeval *tmo;
+
+		/* stop when scheduling queue is empty */
+		cp = (child_process *)squeue_peek(sq);
+		if (!cp)
+			break;
+
+		tmo = squeue_event_runtime(cp->ei->sq_event);
+		gettimeofday(&now, NULL);
+		poll_time = tv_delta_msec(&now, tmo);
+		/*
+		 * A little extra takes care of rounding errors and
+		 * ensures we never kill a job before it times out.
+		 * 5 milliseconds is enough to take care of that.
+		 */
+		poll_time += 5;
+		if (poll_time > 0)
+			break;
+
+		if (cp->ei->state == ESTALE) {
+			kill_job(cp, ESTALE);
+		} else {
+			/* this job timed out, so kill it */
+			kill_job(cp, ETIME);
+		}
+	}
+
+	iobroker_poll(iobs, poll_time);
+
+	if (reapable)
+		reap_jobs();
+}
+
+void enter_worker(nsock_sock *sock, int (*cb)(child_process *))
 {
 	struct passwd *pwd;
 	/* created with socketpair(), usually */
-	master_sd = sd;
+	master_sock = sock;
 	parent_pid = getppid();
 	pwd = getpwuid(getuid());
 	if (!pwd || !chdir(pwd->pw_dir)) {
@@ -694,6 +794,8 @@ void enter_worker(int sd, int (*cb)(child_process *))
 
 	ptab = fanout_create(4096);
 
+	iobs = iobroker_create();
+
 	if (setpgid(0, 0)) {
 		/* XXX: handle error somehow, or maybe just ignore it */
 	}
@@ -703,61 +805,27 @@ void enter_worker(int sd, int (*cb)(child_process *))
 
 	fcntl(fileno(stdout), F_SETFD, FD_CLOEXEC);
 	fcntl(fileno(stderr), F_SETFD, FD_CLOEXEC);
-	fcntl(master_sd, F_SETFD, FD_CLOEXEC);
-	iobs = iobroker_create();
-	if (!iobs) {
-		/* XXX: handle this a bit better */
-		exit_worker(EXIT_FAILURE, "Worker failed to create io broker socket set");
-	}
+	fcntl(nsock_get_fd(master_sock), F_SETFD, FD_CLOEXEC);
 
 	/*
 	 * Create a modest scheduling queue that will be
 	 * more than enough for our needs
 	 */
 	sq = squeue_create(1024);
-	worker_set_sockopts(master_sd, 256 * 1024);
+	worker_set_sockopts(nsock_get_fd(master_sock), 256 * 1024);
 
-	iobroker_register(iobs, master_sd, cb, receive_command);
+	iobroker_register_out(iobs, nsock_get_fd(master_sock), cb, register_worker);
+	if (nsock_connect(master_sock)) {
+		wlog("Failed to connect to query socket: %s: %s\n",
+			   nsock_strerror(nsock_get_fd(master_sock)), strerror(errno));
+		nsock_destroy(master_sock);
+		exit(1);
+	}
 	while (iobroker_get_num_fds(iobs) > 0) {
-		int poll_time = -1;
-
-		/* check for timed out jobs */
-		while (running_jobs) {
-			child_process *cp;
-			struct timeval now;
-			const struct timeval *tmo;
-
-			/* stop when scheduling queue is empty */
-			cp = (child_process *)squeue_peek(sq);
-			if (!cp)
-				break;
-
-			tmo = squeue_event_runtime(cp->ei->sq_event);
-			gettimeofday(&now, NULL);
-			poll_time = tv_delta_msec(&now, tmo);
-			/*
-			 * A little extra takes care of rounding errors and
-			 * ensures we never kill a job before it times out.
-			 * 5 milliseconds is enough to take care of that.
-			 */
-			poll_time += 5;
-			if (poll_time > 0)
-				break;
-
-			if (cp->ei->state == ESTALE) {
-				kill_job(cp, ESTALE);
-			} else {
-				/* this job timed out, so kill it */
-				kill_job(cp, ETIME);
-			}
-		}
-
-		iobroker_poll(iobs, poll_time);
-
-		if (reapable)
-			reap_jobs();
+		run_events();
 	}
 
+	nsock_destroy(sock);
 	/* we exit when the master shuts us down */
 	exit(EXIT_SUCCESS);
 }

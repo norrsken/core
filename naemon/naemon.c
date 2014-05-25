@@ -74,39 +74,21 @@ static void set_loadctl_defaults(void)
 
 static int nagios_core_worker(const char *path)
 {
-	int sd, ret;
-	char response[128];
+	int res;
+	struct nsock_sock *sock;
 
 	is_worker = 1;
 
 	set_loadctl_defaults();
 
-	sd = nsock_connect(path, NSOCK_TCP | NSOCK_CONNECT);
-	if (sd < 0) {
-		printf("Failed to connect to query socket '%s': %s: %s\n",
-		       path, nsock_strerror(sd), strerror(errno));
+	res = nsock_create(path, NSOCK_TCP | NSOCK_CONNECT, &sock);
+	if (res < 0) {
+		printf("Failed to create query socket '%s': %s: %s\n",
+		       path, nsock_strerror(res), strerror(errno));
 		return 1;
 	}
 
-	ret = nsock_printf_nul(sd, "@wproc register name=Core Worker %d;pid=%d", getpid(), getpid());
-	if (ret < 0) {
-		printf("Failed to register as worker: %s.\n", strerror(errno));
-		return 1;
-	}
-
-	ret = read(sd, response, 3);
-	if (ret != 3) {
-		printf("Failed to read response from wproc manager\n");
-		return 1;
-	}
-	if (memcmp(response, "OK", 3)) {
-		read(sd, response + 3, sizeof(response) - 4);
-		response[sizeof(response) - 2] = 0;
-		printf("Failed to register with wproc manager: %s\n", response);
-		return 1;
-	}
-
-	enter_worker(sd, start_cmd);
+	enter_worker(sock, start_cmd);
 	return 0;
 }
 

@@ -76,7 +76,7 @@ extern int finish_job(child_process *cp, int reason);
  * @param sd A socket descriptor to poll
  * @param cb The callback to call upon completion
  */
-extern void enter_worker(int sd, int (*cb)(child_process*));
+extern void enter_worker(nsock_sock *sock, int (*cb)(child_process*));
 
 /**
  * Build a buffer from a key/value vector buffer.
