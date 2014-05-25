@@ -1,12 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "dkhash.c"
+#include "hash.c"
 #include "t-utils.h"
 
-static struct {
-	char *k1, *k2;
-} keys[] = {
+static struct dkkey keys[] = {
 	{ "nisse", "banan" },
 	{ "foo", "bar" },
 	{ "kalle", "penslar" },
@@ -22,39 +20,18 @@ static struct test_data {
 	int x, i, j;
 } del;
 
-unsigned int dkhash_count_entries(dkhash_table *table)
+unsigned int nae_hash_count_entries(nae_hash_table *table)
 {
 	unsigned int i, count = 0;
 
-	for (i = 0; i < table->num_buckets; i++) {
-		dkhash_bucket *bkt;
-		for (bkt = table->buckets[i]; bkt; bkt = bkt->next)
+	for (i = 0; i < table->alloc; i++) {
+		struct nae_hash_entry *bkt;
+		for (bkt = table->entries[i]; bkt; bkt = bkt->next)
 			count++;
 	}
 
 	return count;
 }
-
-int dkhash_check_table(dkhash_table *t)
-{
-	return t ? t->entries - dkhash_count_entries(t) : 0;
-}
-
-void dkhash_debug_print_table(dkhash_table *t, const char *name, int force)
-{
-	int delta = dkhash_check_table(t);
-	unsigned int count;
-	if (!delta && !force)
-		return;
-
-	count = dkhash_count_entries(t);
-	printf("debug data for dkhash table '%s'\n", name);
-	printf("  entries: %u; counted: %u; delta: %d\n",
-	       t->entries, count, delta);
-	printf("  added: %u; removed: %u; delta: %d\n",
-	       t->added, t->removed, t->added - t->removed);
-}
-#define dkhash_debug_table(t, force) dkhash_debug_print_table(t, #t, force)
 
 static struct test_data *ddup(int x, int i, int j)
 {
@@ -67,7 +44,7 @@ static struct test_data *ddup(int x, int i, int j)
 	return d;
 }
 
-struct dkhash_check {
+struct nae_hash_check {
 	unsigned int entries, count, max, added, removed;
 	int ent_delta, addrm_delta;
 };
@@ -78,7 +55,7 @@ static int del_matching(void *data)
 
 	if (!memcmp(d, &del, sizeof(del))) {
 		removed++;
-		return DKHASH_WALK_REMOVE;
+		return NAE_HASH_WALK_REMOVE;
 	}
 
 	return 0;
@@ -86,7 +63,7 @@ static int del_matching(void *data)
 
 int main(int argc, char **argv)
 {
-	dkhash_table *tx, *t;
+	nae_hash_table *tx, *t;
 	unsigned int x;
 	int ret, r2;
 	struct test_data s;
@@ -95,62 +72,47 @@ int main(int argc, char **argv)
 	char tmp[32];
 
 	t_set_colors(0);
-	t_start("dkhash basic test");
-	t = dkhash_create(512);
+	t_start("nae_hash basic test");
+	t = nae_hash_create_string(512);
 
 	p1 = strdup("a not-so secret value");
-	dkhash_insert(t, "nisse", NULL, p1);
-	ok_int(dkhash_num_entries_max(t), 1, "Added one entry, so that's max");
-	ok_int(dkhash_num_entries_added(t), 1, "Added one entry, so one added");
-	ok_int(dkhash_table_size(t), 512, "Table must be sized properly");
-	ok_int(dkhash_collisions(t), 0, "One entry, so zero collisions");
-	p2 = dkhash_get(t, "nisse", NULL);
+	nae_hash_insert(t, "nisse", p1);
+	ok_int(t->alloc, 512, "Table must be sized properly");
+	p2 = nae_hash_get(t, "nisse");
 	test(p1 == p2, "get should get what insert set");
-	dkhash_insert(t, "kalle", "bananas", p1);
-	p2 = dkhash_get(t, "kalle", "bezinga");
+	nae_hash_insert(t, "kalle", p1);
+	p2 = nae_hash_get(t, "kallebezinga");
 	test(p1 != p2, "we should never get the wrong key");
-	ok_int(2, dkhash_num_entries(t), "should be 2 entries after 2 inserts");
-	p2 = dkhash_remove(t, "kalle", "bezinga");
-	ok_int(2, dkhash_num_entries(t), "should be 2 entries after 2 inserts and 1 failed remove");
-	ok_int(0, dkhash_num_entries_removed(t), "should be 0 removed entries after failed remove");
-	p2 = dkhash_remove(t, "kalle", "bananas");
-	test(p1 == p2, "dkhash_remove() should return removed data");
-	ok_int(dkhash_num_entries(t), 1, "should be 1 entries after 2 inserts and 1 successful remove");
-	p2 = dkhash_remove(t, "nisse", NULL);
-	test(p1 == p2, "dkhash_remove() should return removed data");
+	p2 = nae_hash_remove(t, "kallebezinga");
+	test(NULL == p2, "nothing should be removed");
+	p2 = nae_hash_remove(t, "kalle");
+	test(p1 == p2, "nae_hash_remove() should return removed data");
+	p2 = nae_hash_remove(t, "nisse");
+	test(p1 == p2, "nae_hash_remove() should return removed data");
 	ret = t_end();
 
 	t_reset();
 	/* lots of tests below, so we shut up while they're running */
 	t_verbose = 0;
 
-	t_start("dkhash_walk_data() test");
+	t_start("nae_hash_walk() test");
 	memset(&s, 0, sizeof(s));
-	/* first we set up the dkhash-tables */
-	tx = dkhash_create(16);
+	/* first we set up the nae_hash-tables */
+	tx = nae_hash_create_dk(16);
 	for (x = 0; x < ARRAY_SIZE(keys); x++) {
-		dkhash_insert(tx, keys[x].k1, NULL, ddup(x, 0, 0));
-		dkhash_insert(tx, keys[x].k2, NULL, ddup(x, 0, 0));
-		dkhash_insert(tx, keys[x].k1, keys[x].k2, ddup(x, 0, 0));
-		s.x += 3;
-		ok_int(s.x, dkhash_num_entries(tx), "x table adding");
+		nae_hash_insert(tx, &keys[x], ddup(x, 0, 0));
+		s.x += 1;
 	}
 
-	ok_int(s.x, dkhash_num_entries(tx), "x table done adding");
 
 	for (x = 0; x < ARRAY_SIZE(keys); x++) {
 		del.x = x;
 		del.i = del.j = 0;
 
-		ok_int(s.x, dkhash_num_entries(tx), "x table pre-delete");
-		s.x -= 3;
-		dkhash_walk_data(tx, del_matching);
-		ok_int(s.x, dkhash_num_entries(tx), "x table post-delete");
+		s.x -= 1;
+		nae_hash_walk(tx, del_matching);
 	}
 
-	test(0 == dkhash_num_entries(tx), "x table post all ops");
-	test(0 == dkhash_check_table(tx), "x table consistency post all ops");
-	dkhash_debug_table(tx, 0);
 	r2 = t_end();
 	ret = r2 ? r2 : ret;
 
@@ -160,34 +122,34 @@ int main(int argc, char **argv)
 		strs[x] = strdup(tmp);
 	}
 
-	t_start("dkhash single bucket add remove forward");
+	t_start("nae_hash single bucket add remove forward");
 
-	t = dkhash_create(1);
+	t = nae_hash_create_string(1);
 	for (x = 0; x < 10; x++) {
-		dkhash_insert(t, strs[x], NULL, strs[x]);
+		nae_hash_insert(t, strs[x], strs[x]);
 	}
 	for (x = 0; x < 10; x++) {
 		p1 = strs[x];
-		p2 = dkhash_remove(t, p1, NULL);
+		p2 = nae_hash_remove(t, p1);
 		test(p1 == p2, "remove should return a value");
 	}
 	r2 = t_end();
 	ret = r2 ? r2 : ret;
 	t_reset();
 
-	t_start("dkhash single bucket add remove backward");
+	t_start("nae_hash single bucket add remove backward");
 
-	t = dkhash_create(1);
+	t = nae_hash_create_string(1);
 	for (x = 0; x < 10; x++) {
-		dkhash_insert(t, strs[x], NULL, strs[x]);
+		nae_hash_insert(t, strs[x], strs[x]);
 	}
 	for (x = 9; x; x--) {
 		p1 = strs[x];
-		p2 = dkhash_remove(t, p1, NULL);
+		p2 = nae_hash_remove(t, p1);
 		test(p1 == p2, "remove should return a value");
 	}
 
-	dkhash_destroy(t);
+	nae_hash_destroy(t, NULL);
 
 	r2 = t_end();
 	return r2 ? r2 : ret;

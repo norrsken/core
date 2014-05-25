@@ -5,8 +5,8 @@ EXTRA_DIST = buildopts.h.in
 
 nobase_pkginclude_HEADERS = \
 	lib/bitmap.h    lib/kvvec.h       lib/nsock.h    lib/skiplist.h \
-	lib/dkhash.h    lib/libnaemon.h   lib/nspath.h   lib/snprintf.h \
-	lib/fanout.h    lib/libnagios.h   lib/nsutils.h  lib/squeue.h \
+	lib/libnaemon.h   lib/nspath.h   lib/snprintf.h \
+	lib/hash.h    lib/libnagios.h   lib/nsutils.h  lib/squeue.h \
 	lib/iobroker.h  lib/lnae-utils.h  lib/pqueue.h   lib/t-utils.h \
 	lib/iocache.h   lib/lnag-utils.h  lib/runcmd.h   lib/worker.h \
 	lib/rbtree.h

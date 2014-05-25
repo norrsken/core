@@ -43,7 +43,7 @@ struct wproc_worker {
 	int jobs_started; /**< jobs started */
 	int job_index; /**< round-robin slot allocator (this wraps) */
 	iocache *ioc;  /**< iocache for reading from worker */
-	fanout_table *jobs; /**< array of jobs */
+	nae_hash_table *jobs; /**< array of jobs */
 	struct wproc_list *wp_list;
 };
 
@@ -55,7 +55,7 @@ struct wproc_list {
 
 static struct wproc_list workers = {0, 0, NULL};
 
-static dkhash_table *specialized_workers;
+static nae_hash_table *specialized_workers;
 static struct wproc_list *to_remove = NULL;
 
 unsigned int wproc_num_workers_online = 0, wproc_num_workers_desired = 0;
@@ -150,7 +150,7 @@ static int get_job_id(struct wproc_worker *wp)
 
 static struct wproc_job *get_job(struct wproc_worker *wp, int job_id)
 {
-	return fanout_remove(wp->jobs, job_id);
+	return nae_hash_remove(wp->jobs, (void *)(size_t)job_id);
 }
 
 
@@ -173,9 +173,9 @@ static struct wproc_list *get_wproc_list(const char *cmd)
 		slash = strrchr(cmd_name, '/');
 	}
 
-	wp_list = dkhash_get(specialized_workers, cmd_name ? cmd_name : cmd, NULL);
+	wp_list = nae_hash_get(specialized_workers, cmd_name ? cmd_name : cmd);
 	if (!wp_list && slash) {
-		wp_list = dkhash_get(specialized_workers, ++slash, NULL);
+		wp_list = nae_hash_get(specialized_workers, ++slash);
 	}
 	if (wp_list != NULL) {
 		log_debug_info(DEBUGL_CHECKS, 1, "Found specialized worker(s) for '%s'", (slash && *slash != '/') ? slash : cmd_name);
@@ -219,7 +219,7 @@ static void destroy_job(struct wproc_job *job)
 
 	my_free(job->command);
 	if (job->wp) {
-		fanout_remove(job->wp->jobs, job->id);
+		nae_hash_remove(job->wp->jobs, (void *)(size_t)job->id);
 		job->wp->jobs_running--;
 	}
 	loadctl.jobs_running--;
@@ -260,7 +260,7 @@ static int wproc_destroy(struct wproc_worker *wp, int flags)
 	iocache_destroy(wp->ioc);
 	wp->ioc = NULL;
 	my_free(wp->name);
-	fanout_destroy(wp->jobs, fo_destroy_job);
+	nae_hash_destroy(wp->jobs, fo_destroy_job);
 	wp->jobs = NULL;
 
 	/* workers must never control other workers, so they return early */
@@ -287,7 +287,7 @@ static int wproc_destroy(struct wproc_worker *wp, int flags)
 static int remove_specialized(void *data)
 {
 	if (data == to_remove)
-		return DKHASH_WALK_REMOVE;
+		return NAE_HASH_WALK_REMOVE;
 	return 0;
 }
 
@@ -307,7 +307,7 @@ static void remove_worker(struct wproc_worker *worker)
 		return;
 
 	to_remove = wpl;
-	dkhash_walk_data(specialized_workers, remove_specialized);
+	nae_hash_walk(specialized_workers, remove_specialized);
 }
 
 
@@ -331,8 +331,8 @@ void free_worker_memory(int flags)
 		free(workers.wps);
 	}
 	to_remove = NULL;
-	dkhash_walk_data(specialized_workers, remove_specialized);
-	dkhash_destroy(specialized_workers);
+	nae_hash_walk(specialized_workers, remove_specialized);
+	nae_hash_destroy(specialized_workers, NULL);
 	workers.wps = NULL;
 	workers.len = 0;
 	workers.idx = 0;
@@ -505,7 +505,7 @@ static int handle_worker_result(int sd, int events, void *arg)
 			      "wproc: All our workers are dead, we can't do anything!");
 		}
 		remove_worker(wp);
-		fanout_destroy(wp->jobs, fo_reassign_wproc_job);
+		nae_hash_destroy(wp->jobs, fo_reassign_wproc_job);
 		wp->jobs = NULL;
 		wproc_destroy(wp, 0);
 		return 0;
@@ -629,12 +629,14 @@ static int register_worker(int sd, char *buf, unsigned int len)
 		} else if (!strcmp(kv->key, "plugin")) {
 			struct wproc_list *command_handlers;
 			is_global = 0;
-			if (!(command_handlers = dkhash_get(specialized_workers, kv->value, NULL))) {
+			if (!(command_handlers = nae_hash_get(specialized_workers, kv->value))) {
 				command_handlers = calloc(1, sizeof(struct wproc_list));
 				command_handlers->wps = calloc(1, sizeof(struct wproc_worker **));
 				command_handlers->len = 1;
 				command_handlers->wps[0] = worker;
-				dkhash_insert(specialized_workers, strdup(kv->value), NULL, command_handlers);
+				nae_hash_insert(specialized_workers,
+						strdup(kv->value),
+						command_handlers);
 			} else {
 				command_handlers->len++;
 				command_handlers->wps = realloc(command_handlers->wps, command_handlers->len * sizeof(struct wproc_worker **));
@@ -653,7 +655,7 @@ static int register_worker(int sd, char *buf, unsigned int len)
 		 */
 		worker->max_jobs = (iobroker_max_usable_fds() / 2) - 50;
 	}
-	worker->jobs = fanout_create(worker->max_jobs);
+	worker->jobs = nae_hash_create_long(worker->max_jobs);
 
 	if (is_global) {
 		workers.len++;
@@ -712,7 +714,7 @@ int init_workers(int desired_workers)
 	 * we register our query handler before launching workers,
 	 * so other workers can join us whenever they're ready
 	 */
-	specialized_workers = dkhash_create(512);
+	specialized_workers = nae_hash_create_string(512);
 	if (!qh_register_handler("wproc", "Worker process management and info", 0, wproc_query_handler))
 		logit(NSLOG_INFO_MESSAGE,
 		      "wproc: Successfully registered manager as @wproc with query handler\n");
@@ -745,7 +747,7 @@ static struct wproc_job *create_job(void (*callback)(struct wproc_result *, void
 	job->callback = callback;
 	job->data = data;
 	job->timeout = timeout;
-	if (fanout_add(wp->jobs, job->id, job) < 0 || !(job->command = strdup(cmd))) {
+	if (nae_hash_insert(wp->jobs, (void *)(size_t)job->id, job) < 0 || !(job->command = strdup(cmd))) {
 		free(job);
 		return NULL;
 	}

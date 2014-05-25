@@ -12,7 +12,7 @@
  * Escalations are attached to the objects they belong to.
  * Dependencies are attached to the dependent end of the object chain.
  */
-dkhash_table *object_hash_tables[NUM_HASHED_OBJECT_TYPES];
+nae_hash_table *object_hash_tables[NUM_HASHED_OBJECT_TYPES];
 
 command *command_list = NULL;
 timeperiod *timeperiod_list = NULL;
@@ -301,7 +301,7 @@ int create_object_tables(unsigned int *ocount)
 		const unsigned int hash_size = ocount[i] * 1.5;
 		if (!hash_size)
 			continue;
-		object_hash_tables[i] = dkhash_create(hash_size);
+		object_hash_tables[i] = i == OBJTYPE_SERVICE ? nae_hash_create_dk(hash_size) : nae_hash_create_string(hash_size);
 		if (!object_hash_tables[i]) {
 			logit(NSLOG_CONFIG_ERROR,
 			      "Failed to create hash table with %u entries\n", hash_size);
@@ -364,14 +364,14 @@ timeperiod *add_timeperiod(char *name, char *alias)
 
 	/* add new timeperiod to hash table */
 	if (result == OK) {
-		result = dkhash_insert(object_hash_tables[OBJTYPE_TIMEPERIOD], new_timeperiod->name, NULL, new_timeperiod);
+		result = nae_hash_insert(object_hash_tables[OBJTYPE_TIMEPERIOD], new_timeperiod->name, new_timeperiod);
 		switch (result) {
-		case DKHASH_EDUPE:
+		case NAE_HASH_EDUPE:
 			logit(NSLOG_CONFIG_ERROR,
 			      "Error: Timeperiod '%s' has already been defined\n", name);
 			result = ERROR;
 			break;
-		case DKHASH_OK:
+		case NAE_HASH_OK:
 			result = OK;
 			break;
 		default:
@@ -660,14 +660,14 @@ host *add_host(char *name, char *display_name, char *alias, char *address, char 
 
 	/* add new host to hash table */
 	if (result == OK) {
-		result = dkhash_insert(object_hash_tables[OBJTYPE_HOST], new_host->name, NULL, new_host);
+		result = nae_hash_insert(object_hash_tables[OBJTYPE_HOST], new_host->name, new_host);
 		switch (result) {
-		case DKHASH_EDUPE:
+		case NAE_HASH_EDUPE:
 			logit(NSLOG_CONFIG_ERROR,
 			      "Error: Host '%s' has already been defined\n", name);
 			result = ERROR;
 			break;
-		case DKHASH_OK:
+		case NAE_HASH_OK:
 			result = OK;
 			break;
 		default:
@@ -882,14 +882,14 @@ hostgroup *add_hostgroup(char *name, char *alias, char *notes, char *notes_url, 
 
 	/* add new host group to hash table */
 	if (result == OK) {
-		result = dkhash_insert(object_hash_tables[OBJTYPE_HOSTGROUP], new_hostgroup->group_name, NULL, new_hostgroup);
+		result = nae_hash_insert(object_hash_tables[OBJTYPE_HOSTGROUP], new_hostgroup->group_name, new_hostgroup);
 		switch (result) {
-		case DKHASH_EDUPE:
+		case NAE_HASH_EDUPE:
 			logit(NSLOG_CONFIG_ERROR,
 			      "Error: Hostgroup '%s' has already been defined\n", name);
 			result = ERROR;
 			break;
-		case DKHASH_OK:
+		case NAE_HASH_OK:
 			result = OK;
 			break;
 		default:
@@ -999,14 +999,14 @@ servicegroup *add_servicegroup(char *name, char *alias, char *notes, char *notes
 
 	/* add new service group to hash table */
 	if (result == OK) {
-		result = dkhash_insert(object_hash_tables[OBJTYPE_SERVICEGROUP], new_servicegroup->group_name, NULL, new_servicegroup);
+		result = nae_hash_insert(object_hash_tables[OBJTYPE_SERVICEGROUP], new_servicegroup->group_name, new_servicegroup);
 		switch (result) {
-		case DKHASH_EDUPE:
+		case NAE_HASH_EDUPE:
 			logit(NSLOG_CONFIG_ERROR,
 			      "Error: Servicegroup '%s' has already been defined\n", name);
 			result = ERROR;
 			break;
-		case DKHASH_OK:
+		case NAE_HASH_OK:
 			result = OK;
 			break;
 		default:
@@ -1162,14 +1162,14 @@ contact *add_contact(char *name, char *alias, char *email, char *pager, char **a
 
 	/* add new contact to hash table */
 	if (result == OK) {
-		result = dkhash_insert(object_hash_tables[OBJTYPE_CONTACT], new_contact->name, NULL, new_contact);
+		result = nae_hash_insert(object_hash_tables[OBJTYPE_CONTACT], new_contact->name, new_contact);
 		switch (result) {
-		case DKHASH_EDUPE:
+		case NAE_HASH_EDUPE:
 			logit(NSLOG_CONFIG_ERROR,
 			      "Error: Contact '%s' has already been defined\n", name);
 			result = ERROR;
 			break;
-		case DKHASH_OK:
+		case NAE_HASH_OK:
 			result = OK;
 			break;
 		default:
@@ -1297,14 +1297,14 @@ contactgroup *add_contactgroup(char *name, char *alias)
 
 	/* add new contact group to hash table */
 	if (result == OK) {
-		result = dkhash_insert(object_hash_tables[OBJTYPE_CONTACTGROUP], new_contactgroup->group_name, NULL, new_contactgroup);
+		result = nae_hash_insert(object_hash_tables[OBJTYPE_CONTACTGROUP], new_contactgroup->group_name, new_contactgroup);
 		switch (result) {
-		case DKHASH_EDUPE:
+		case NAE_HASH_EDUPE:
 			logit(NSLOG_CONFIG_ERROR,
 			      "Error: Contactgroup '%s' has already been defined\n", name);
 			result = ERROR;
 			break;
-		case DKHASH_OK:
+		case NAE_HASH_OK:
 			result = OK;
 			break;
 		default:
@@ -1515,14 +1515,17 @@ service *add_service(char *host_name, char *description, char *display_name, cha
 
 	/* add new service to hash table */
 	if (result == OK) {
-		result = dkhash_insert(object_hash_tables[OBJTYPE_SERVICE], new_service->host_name, new_service->description, new_service);
+		struct dkkey *key = calloc(1, sizeof(struct dkkey));
+		key->k1 = new_service->host_name;
+		key->k2 = new_service->description;
+		result = nae_hash_insert(object_hash_tables[OBJTYPE_SERVICE], key, new_service);
 		switch (result) {
-		case DKHASH_EDUPE:
+		case NAE_HASH_EDUPE:
 			logit(NSLOG_CONFIG_ERROR,
 			      "Error: Service '%s' on host '%s' has already been defined\n", description, host_name);
 			result = ERROR;
 			break;
-		case DKHASH_OK:
+		case NAE_HASH_OK:
 			result = OK;
 			break;
 		default:
@@ -1603,14 +1606,14 @@ command *add_command(char *name, char *value)
 
 	/* add new command to hash table */
 	if (result == OK) {
-		result = dkhash_insert(object_hash_tables[OBJTYPE_COMMAND], new_command->name, NULL, new_command);
+		result = nae_hash_insert(object_hash_tables[OBJTYPE_COMMAND], new_command->name, new_command);
 		switch (result) {
-		case DKHASH_EDUPE:
+		case NAE_HASH_EDUPE:
 			logit(NSLOG_CONFIG_ERROR,
 			      "Error: Command '%s' has already been defined\n", name);
 			result = ERROR;
 			break;
-		case DKHASH_OK:
+		case NAE_HASH_OK:
 			result = OK;
 			break;
 		default:
@@ -1995,32 +1998,32 @@ customvariablesmember *add_custom_variable_to_object(customvariablesmember **obj
 
 timeperiod *find_timeperiod(const char *name)
 {
-	return dkhash_get(object_hash_tables[OBJTYPE_TIMEPERIOD], name, NULL);
+	return nae_hash_get(object_hash_tables[OBJTYPE_TIMEPERIOD], name);
 }
 
 host *find_host(const char *name)
 {
-	return dkhash_get(object_hash_tables[OBJTYPE_HOST], name, NULL);
+	return nae_hash_get(object_hash_tables[OBJTYPE_HOST], name);
 }
 
 hostgroup *find_hostgroup(const char *name)
 {
-	return dkhash_get(object_hash_tables[OBJTYPE_HOSTGROUP], name, NULL);
+	return nae_hash_get(object_hash_tables[OBJTYPE_HOSTGROUP], name);
 }
 
 servicegroup *find_servicegroup(const char *name)
 {
-	return dkhash_get(object_hash_tables[OBJTYPE_SERVICEGROUP], name, NULL);
+	return nae_hash_get(object_hash_tables[OBJTYPE_SERVICEGROUP], name);
 }
 
 contact *find_contact(const char *name)
 {
-	return dkhash_get(object_hash_tables[OBJTYPE_CONTACT], name, NULL);
+	return nae_hash_get(object_hash_tables[OBJTYPE_CONTACT], name);
 }
 
 contactgroup *find_contactgroup(const char *name)
 {
-	return dkhash_get(object_hash_tables[OBJTYPE_CONTACTGROUP], name, NULL);
+	return nae_hash_get(object_hash_tables[OBJTYPE_CONTACTGROUP], name);
 }
 
 /* find a command with arguments still attached */
@@ -2043,12 +2046,13 @@ command *find_bang_command(char *name)
 
 command *find_command(const char *name)
 {
-	return dkhash_get(object_hash_tables[OBJTYPE_COMMAND], name, NULL);
+	return nae_hash_get(object_hash_tables[OBJTYPE_COMMAND], name);
 }
 
 service *find_service(const char *host_name, const char *svc_desc)
 {
-	return dkhash_get(object_hash_tables[OBJTYPE_SERVICE], host_name, svc_desc);
+	struct dkkey key = {host_name, svc_desc};
+	return nae_hash_get(object_hash_tables[OBJTYPE_SERVICE], &key);
 }
 
 
@@ -2402,9 +2406,9 @@ int free_object_data(void)
 	 * while we're busy removing it.
 	 */
 	for (i = 0; i < ARRAY_SIZE(object_hash_tables); i++) {
-		dkhash_table *t = object_hash_tables[i];
+		nae_hash_table *t = object_hash_tables[i];
 		object_hash_tables[i] = NULL;
-		dkhash_destroy(t);
+		nae_hash_destroy(t, NULL);
 	}
 
 	/**** free memory for the timeperiod list ****/

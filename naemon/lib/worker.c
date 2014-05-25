@@ -40,7 +40,7 @@ static squeue_t *sq;
 static unsigned int started, running_jobs, timeouts, reapable;
 static nsock_sock *master_sock;
 static int parent_pid;
-static fanout_table *ptab;
+static nae_hash_table *ptab;
 
 static void exit_worker(int code, const char *msg)
 {
@@ -199,7 +199,7 @@ static void destroy_job(child_process *cp)
 	 */
 	squeue_remove(sq, cp->ei->sq_event);
 	running_jobs--;
-	fanout_remove(ptab, cp->ei->pid);
+	nae_hash_remove(ptab, (void *)(size_t)cp->ei->pid);
 
 	if (cp->outstd.buf) {
 		free(cp->outstd.buf);
@@ -498,7 +498,7 @@ static void reap_jobs(void)
 			struct child_process *cp;
 
 			reapable--;
-			if (!(cp = fanout_get(ptab, pid))) {
+			if (!(cp = nae_hash_get(ptab, (void *)(size_t)pid))) {
 				/* we reaped a lost child. Odd that */
 				continue;
 			}
@@ -537,7 +537,7 @@ int start_cmd(child_process *cp)
 		wlog("Failed to register iobroker for stdout");
 	if (iobroker_register(iobs, cp->outerr.fd, cp, stderr_handler))
 		wlog("Failed to register iobroker for stderr");
-	fanout_add(ptab, cp->ei->pid, cp);
+	nae_hash_insert(ptab, (void *)(size_t)cp->ei->pid, cp);
 
 	return 0;
 }
@@ -796,7 +796,7 @@ void enter_worker(nsock_sock *sock, int (*cb)(child_process *))
 		}
 	}
 
-	ptab = fanout_create(4096);
+	ptab = nae_hash_create_long(4096);
 
 	iobs = iobroker_create();
 

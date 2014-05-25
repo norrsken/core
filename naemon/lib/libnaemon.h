@@ -6,7 +6,7 @@
  * @brief Compat header to facilitate using Nagios projects with Naemon
  */
 #include "lnae-utils.h"
-#include "fanout.h"
+#include "hash.h"
 #include "nsutils.h"
 #include "pqueue.h"
 #include "squeue.h"
@@ -15,7 +15,6 @@
 #include "iocache.h"
 #include "runcmd.h"
 #include "bitmap.h"
-#include "dkhash.h"
 #include "skiplist.h"
 #include "rbtree.h"
 #include "nsock.h"

@@ -13,7 +13,7 @@
 
 scheduled_downtime *scheduled_downtime_list = NULL;
 int		   defer_downtime_sorting = 0;
-static fanout_table *dt_fanout;
+static nae_hash_table *dt_fanout;
 
 
 #define DT_ENULL (-1)
@@ -133,7 +133,7 @@ static int downtime_add(scheduled_downtime *dt)
 		next_downtime_id = dt->downtime_id + 1;
 	}
 
-	if (fanout_add(dt_fanout, dt->downtime_id, dt) < 0) {
+	if (nae_hash_insert(dt_fanout, (void *)(size_t)dt->downtime_id, dt) < 0) {
 		next_downtime_id = prev_downtime_id;
 		return errno;
 	}
@@ -173,7 +173,7 @@ static int downtime_add(scheduled_downtime *dt)
 
 static void downtime_remove(scheduled_downtime *dt)
 {
-	fanout_remove(dt_fanout, dt->downtime_id);
+	nae_hash_remove(dt_fanout, (void *)(size_t)dt->downtime_id);
 	if (scheduled_downtime_list == dt) {
 		scheduled_downtime_list = dt->next;
 		if (scheduled_downtime_list)
@@ -194,7 +194,7 @@ static void downtime_remove(scheduled_downtime *dt)
 int initialize_downtime_data(void)
 {
 	log_debug_info(DEBUGL_FUNCTIONS, 0, "initialize_downtime_data()\n");
-	dt_fanout = fanout_create(16384);
+	dt_fanout = nae_hash_create_long(16384);
 	next_downtime_id = 1;
 	return dt_fanout ? OK : ERROR;
 }
@@ -1252,7 +1252,7 @@ scheduled_downtime *find_downtime(int type, unsigned long downtime_id)
 
 	log_debug_info(DEBUGL_FUNCTIONS, 0, "find_downtime()\n");
 
-	dt = fanout_get(dt_fanout, downtime_id);
+	dt = nae_hash_get(dt_fanout, (void *)(size_t)downtime_id);
 	if (dt && (type == ANY_DOWNTIME || type == dt->type))
 		return dt;
 	return NULL;
@@ -1283,7 +1283,7 @@ void free_downtime_data(void)
 	scheduled_downtime *this_downtime = NULL;
 	scheduled_downtime *next_downtime = NULL;
 
-	fanout_destroy(dt_fanout, NULL);
+	nae_hash_destroy(dt_fanout, NULL);
 	dt_fanout = NULL;
 
 	/* free memory for the scheduled_downtime list */
