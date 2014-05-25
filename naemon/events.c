@@ -18,6 +18,10 @@
 #include <math.h>
 #include <string.h>
 
+#ifdef EMSCRIPTEN
+#include <emscripten.h>
+#endif
+
 /* the event we're currently processing */
 static timed_event *current_event;
 
@@ -591,127 +595,139 @@ static int should_run_event(timed_event *temp_event)
 }
 
 
+int execute_events(void)
+{
+	static timed_event *last_event = NULL;
+	static time_t last_time = 0L;
+	static time_t last_status_update = 0L;
+	timed_event *temp_event;
+	time_t current_time = 0L;
+	int poll_time_ms;
+	struct timeval now;
+	const struct timeval *event_runtime;
+	int inputs;
+
+	if (last_time == 0L)
+		time(&last_time);
+	/* super-priority (hardcoded) events come first */
+
+	/* see if we should exit or restart (a signal was encountered) */
+	if (sigshutdown == TRUE || sigrestart == TRUE)
+		return 1;
+
+	/* get the current time */
+	time(&current_time);
+
+	if (sigrotate == TRUE) {
+		rotate_log_file(current_time);
+		update_program_status(FALSE);
+	}
+
+	/* hey, wait a second...  we traveled back in time! */
+	if (current_time < last_time)
+		compensate_for_system_time_change((unsigned long)last_time, (unsigned long)current_time);
+
+	/* else if the time advanced over the specified threshold, try and compensate... */
+	else if ((current_time - last_time) >= time_change_threshold)
+		compensate_for_system_time_change((unsigned long)last_time, (unsigned long)current_time);
+
+	/* get next scheduled event */
+	current_event = temp_event = (timed_event *)squeue_peek(nagios_squeue);
+
+	/* if we don't have any events to handle, exit */
+	if (!temp_event) {
+		log_debug_info(DEBUGL_EVENTS, 0, "There aren't any events that need to be handled! Exiting...\n");
+		return 1;
+	}
+
+	/* keep track of the last time */
+	last_time = current_time;
+
+	/* update status information occassionally - NagVis watches the NDOUtils DB to see if Nagios is alive */
+	if ((unsigned long)(current_time - last_status_update) > 5) {
+		last_status_update = current_time;
+		update_program_status(FALSE);
+	}
+
+	event_runtime = squeue_event_runtime(temp_event->sq_event);
+	if (temp_event != last_event) {
+		log_debug_info(DEBUGL_EVENTS, 1, "** Event Check Loop\n");
+		log_debug_info(DEBUGL_EVENTS, 1, "Next Event Time: %s", ctime(&temp_event->run_time));
+	}
+
+	last_event = temp_event;
+
+	gettimeofday(&now, NULL);
+	poll_time_ms = tv_delta_msec(&now, event_runtime);
+	if (poll_time_ms < 0)
+		poll_time_ms = 0;
+	else if (poll_time_ms >= 1500)
+		poll_time_ms = 1500;
+
+	log_debug_info(DEBUGL_SCHEDULING, 2, "## Polling %dms; sockets=%d; events=%u; iobs=%p\n",
+				   poll_time_ms, iobroker_get_num_fds(nagios_iobs),
+				   squeue_size(nagios_squeue), nagios_iobs);
+	inputs = iobroker_poll(nagios_iobs, poll_time_ms);
+	if (inputs < 0 && errno != EINTR) {
+		logit(NSLOG_RUNTIME_ERROR, TRUE, "Error: Polling for input on %p failed: %s", nagios_iobs, iobroker_strerror(inputs));
+		return 1;
+	}
+
+	log_debug_info(DEBUGL_IPC, 2, "## %d descriptors had input\n", inputs);
+
+	/*
+	 * if the event we peaked was removed from the queue from
+	 * one of the I/O operations, we must take care not to
+	 * try to run at, as we're (almost) sure to access free'd
+	 * or invalid memory if we do.
+	 */
+	if (!current_event) {
+		log_debug_info(DEBUGL_EVENTS, 0, "Event was cancelled by iobroker input\n");
+		return 0;
+	}
+
+	gettimeofday(&now, NULL);
+	if (tv_delta_msec(&now, event_runtime) >= 0)
+		return 0;
+
+	/* move on if we shouldn't run this event */
+	if (should_run_event(temp_event) == FALSE)
+		return 0;
+
+	/* handle the event */
+	handle_timed_event(temp_event);
+
+	/*
+	 * we must remove the entry we've peeked, or
+	 * we'll keep getting the same one over and over.
+	 * This also maintains sync with broker modules.
+	 */
+	remove_event(nagios_squeue, temp_event);
+
+	/* reschedule the event if necessary */
+	if (temp_event->recurring == TRUE)
+		reschedule_event(nagios_squeue, temp_event);
+
+	/* else free memory associated with the event */
+	else
+		my_free(temp_event);
+	return 0;
+}
+
 /* this is the main event handler loop */
 int event_execution_loop(void)
 {
-	timed_event *temp_event, *last_event = NULL;
-	time_t last_time = 0L;
-	time_t current_time = 0L;
-	time_t last_status_update = 0L;
-	int poll_time_ms;
-
+	int error = 0;
 	log_debug_info(DEBUGL_FUNCTIONS, 0, "event_execution_loop() start\n");
 
-	time(&last_time);
 
-	while (1) {
-		struct timeval now;
-		const struct timeval *event_runtime;
-		int inputs;
-
-		/* super-priority (hardcoded) events come first */
-
-		/* see if we should exit or restart (a signal was encountered) */
-		if (sigshutdown == TRUE || sigrestart == TRUE)
-			break;
-
-		/* get the current time */
-		time(&current_time);
-
-		if (sigrotate == TRUE) {
-			rotate_log_file(current_time);
-			update_program_status(FALSE);
-		}
-
-		/* hey, wait a second...  we traveled back in time! */
-		if (current_time < last_time)
-			compensate_for_system_time_change((unsigned long)last_time, (unsigned long)current_time);
-
-		/* else if the time advanced over the specified threshold, try and compensate... */
-		else if ((current_time - last_time) >= time_change_threshold)
-			compensate_for_system_time_change((unsigned long)last_time, (unsigned long)current_time);
-
-		/* get next scheduled event */
-		current_event = temp_event = (timed_event *)squeue_peek(nagios_squeue);
-
-		/* if we don't have any events to handle, exit */
-		if (!temp_event) {
-			log_debug_info(DEBUGL_EVENTS, 0, "There aren't any events that need to be handled! Exiting...\n");
-			break;
-		}
-
-		/* keep track of the last time */
-		last_time = current_time;
-
-		/* update status information occassionally - NagVis watches the NDOUtils DB to see if Nagios is alive */
-		if ((unsigned long)(current_time - last_status_update) > 5) {
-			last_status_update = current_time;
-			update_program_status(FALSE);
-		}
-
-		event_runtime = squeue_event_runtime(temp_event->sq_event);
-		if (temp_event != last_event) {
-			log_debug_info(DEBUGL_EVENTS, 1, "** Event Check Loop\n");
-			log_debug_info(DEBUGL_EVENTS, 1, "Next Event Time: %s", ctime(&temp_event->run_time));
-		}
-
-		last_event = temp_event;
-
-		gettimeofday(&now, NULL);
-		poll_time_ms = tv_delta_msec(&now, event_runtime);
-		if (poll_time_ms < 0)
-			poll_time_ms = 0;
-		else if (poll_time_ms >= 1500)
-			poll_time_ms = 1500;
-
-		log_debug_info(DEBUGL_SCHEDULING, 2, "## Polling %dms; sockets=%d; events=%u; iobs=%p\n",
-		               poll_time_ms, iobroker_get_num_fds(nagios_iobs),
-		               squeue_size(nagios_squeue), nagios_iobs);
-		inputs = iobroker_poll(nagios_iobs, poll_time_ms);
-		if (inputs < 0 && errno != EINTR) {
-			logit(NSLOG_RUNTIME_ERROR, TRUE, "Error: Polling for input on %p failed: %s", nagios_iobs, iobroker_strerror(inputs));
-			break;
-		}
-
-		log_debug_info(DEBUGL_IPC, 2, "## %d descriptors had input\n", inputs);
-
-		/*
-		 * if the event we peaked was removed from the queue from
-		 * one of the I/O operations, we must take care not to
-		 * try to run at, as we're (almost) sure to access free'd
-		 * or invalid memory if we do.
-		 */
-		if (!current_event) {
-			log_debug_info(DEBUGL_EVENTS, 0, "Event was cancelled by iobroker input\n");
-			continue;
-		}
-
-		gettimeofday(&now, NULL);
-		if (tv_delta_msec(&now, event_runtime) >= 0)
-			continue;
-
-		/* move on if we shouldn't run this event */
-		if (should_run_event(temp_event) == FALSE)
-			continue;
-
-		/* handle the event */
-		handle_timed_event(temp_event);
-
-		/*
-		 * we must remove the entry we've peeked, or
-		 * we'll keep getting the same one over and over.
-		 * This also maintains sync with broker modules.
-		 */
-		remove_event(nagios_squeue, temp_event);
-
-		/* reschedule the event if necessary */
-		if (temp_event->recurring == TRUE)
-			reschedule_event(nagios_squeue, temp_event);
-
-		/* else free memory associated with the event */
-		else
-			my_free(temp_event);
+#ifdef EMSCRIPTEN
+	emscripten_set_main_loop((void(*execute_events)(void)), 60, 1);
+#else
+	while (!error) {
+		error = execute_events();
 	}
+#endif
 
 	log_debug_info(DEBUGL_FUNCTIONS, 0, "event_execution_loop() end\n");
 

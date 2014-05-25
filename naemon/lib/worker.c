@@ -16,6 +16,10 @@
 #include <sys/select.h>
 #endif
 
+#ifdef EMSCRIPTEN
+#include <emscripten.h>
+#endif
+
 #define MSG_DELIM "\1\0\0" /**< message limiter */
 #define MSG_DELIM_LEN (sizeof(MSG_DELIM)) /**< message delimiter length */
 #define PAIR_SEP 0 /**< pair separator for buf2kvvec() and kvvec2buf() */
@@ -821,9 +825,13 @@ void enter_worker(nsock_sock *sock, int (*cb)(child_process *))
 		nsock_destroy(master_sock);
 		exit(1);
 	}
+#ifdef EMSCRIPTEN
+	emscripten_set_main_loop(run_events, 60, 1);
+#else
 	while (iobroker_get_num_fds(iobs) > 0) {
 		run_events();
 	}
+#endif
 
 	nsock_destroy(sock);
 	/* we exit when the master shuts us down */

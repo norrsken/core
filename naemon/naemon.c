@@ -24,6 +24,10 @@
 #include <getopt.h>
 #include <string.h>
 
+#ifdef EMSCRIPTEN
+#include <emscripten.h>
+#endif
+
 static int is_worker;
 
 static void set_loadctl_defaults(void)
@@ -137,6 +141,13 @@ int main(int argc, char **argv)
 	nagios_macros *mac;
 	const char *worker_socket = NULL;
 	int i;
+#ifdef EMSCRIPTEN
+	EM_ASM(
+		FS.mkdir('/etc');
+		FS.mount(NODEFS, { root: './run' }, '/etc');
+	);
+#endif
+
 
 #ifdef HAVE_GETOPT_H
 	int option_index = 0;
@@ -455,7 +466,9 @@ int main(int argc, char **argv)
 	}
 
 	/* keep monitoring things until we get a shutdown command */
+#ifndef EMSCRIPTEN
 	do {
+#endif
 		/* reset internal book-keeping (in case we're restarting) */
 		wproc_num_workers_spawned = wproc_num_workers_online = 0;
 		caught_signal = sigshutdown = sigrestart = FALSE;
@@ -760,7 +773,9 @@ int main(int argc, char **argv)
 		/* close debug log */
 		close_debug_log();
 
+#ifndef EMSCRIPTEN
 	} while (sigrestart == TRUE && sigshutdown == FALSE);
+#endif
 
 	if (daemon_mode == TRUE)
 		unlink(lock_file);
