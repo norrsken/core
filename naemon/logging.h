@@ -40,7 +40,7 @@
 #define DEBUGL_ALL                      -1
 #define DEBUGL_NONE                     0
 #define DEBUGL_FUNCTIONS                1
-#define DEBUGL_CONFIG			2
+#define DEBUGL_CONFIG                   2
 #define DEBUGL_PROCESS                  4
 #define DEBUGL_STATUSDATA               4
 #define DEBUGL_RETENTIONDATA            4
@@ -60,7 +60,7 @@
 #define DEBUGL_SCHEDULING               8192
 
 #define DEBUGV_BASIC                    0
-#define DEBUGV_MORE			1
+#define DEBUGV_MORE                     1
 #define DEBUGV_MOST                     2
 
 
