@@ -4,11 +4,7 @@
 #include <unistd.h>
 
 #include <check.h>
-#include "naemon/logging.h"
-
-// these are defined in utils.c, not utils.h. Because of course they are.
-extern char *log_file;
-extern unsigned long logging_options;
+#include "naemon/logging.c"
 
 START_TEST(common_case)
 {

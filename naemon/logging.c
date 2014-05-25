@@ -18,85 +18,6 @@ static FILE *log_fp;
 /************************ LOGGING FUNCTIONS ***********************/
 /******************************************************************/
 
-/* write something to the console */
-static void write_to_console(char *buffer)
-{
-	/* should we print to the console? */
-	if (daemon_mode == FALSE)
-		printf("%s\n", buffer);
-}
-
-
-/* write something to the log file, syslog, and possibly the console */
-static void write_to_logs_and_console(char *buffer, unsigned long data_type, int display)
-{
-	register int len = 0;
-	register int x = 0;
-
-	/* strip unnecessary newlines */
-	len = strlen(buffer);
-	for (x = len - 1; x >= 0; x--) {
-		if (buffer[x] == '\n')
-			buffer[x] = '\x0';
-		else
-			break;
-	}
-
-	/* write messages to the logs */
-	write_to_all_logs(buffer, data_type);
-
-	/* write message to the console */
-	if (display == TRUE) {
-
-		/* don't display warnings if we're just testing scheduling */
-		if (test_scheduling == TRUE && data_type == NSLOG_VERIFICATION_WARNING)
-			return;
-
-		write_to_console(buffer);
-	}
-}
-
-
-/* The main logging function */
-void logit(int data_type, int display, const char *fmt, ...)
-{
-	va_list ap;
-	char *buffer = NULL;
-
-	va_start(ap, fmt);
-	if (vasprintf(&buffer, fmt, ap) > 0) {
-		write_to_logs_and_console(buffer, data_type, display);
-		free(buffer);
-	}
-	va_end(ap);
-}
-
-
-/* write something to the log file and syslog facility */
-int write_to_all_logs(char *buffer, unsigned long data_type)
-{
-
-	/* write to syslog */
-	write_to_syslog(buffer, data_type);
-
-	/* write to main log */
-	write_to_log(buffer, data_type, NULL);
-
-	return OK;
-}
-
-
-/* write something to the log file and syslog facility */
-static void write_to_all_logs_with_timestamp(char *buffer, unsigned long data_type, time_t *timestamp)
-{
-	/* write to syslog */
-	write_to_syslog(buffer, data_type);
-
-	/* write to main log */
-	write_to_log(buffer, data_type, timestamp);
-}
-
-
 static FILE *open_log_file(void)
 {
 	if (log_fp) /* keep it open unless we rotate */
@@ -114,36 +35,17 @@ static FILE *open_log_file(void)
 	return log_fp;
 }
 
-int fix_log_file_owner(uid_t uid, gid_t gid)
+
+/* write something to the console */
+static void write_to_console(char *buffer)
 {
-	int r1 = 0, r2 = 0;
-
-	if (!(log_fp = open_log_file()))
-		return -1;
-	r1 = fchown(fileno(log_fp), uid, gid);
-
-	if (open_debug_log() != OK)
-		return -1;
-	if (debug_file_fp)
-		r2 = fchown(fileno(debug_file_fp), uid, gid);
-
-	/* return 0 if both are 0 and otherwise < 0 */
-	return r1 < r2 ? r1 : r2;
-}
-
-int close_log_file(void)
-{
-	if (!log_fp)
-		return 0;
-
-	fflush(log_fp);
-	fclose(log_fp);
-	log_fp = NULL;
-	return 0;
+	/* should we print to the console? */
+	if (daemon_mode == FALSE)
+		printf("%s\n", buffer);
 }
 
 /* write something to the naemon log file */
-int write_to_log(char *buffer, unsigned long data_type, time_t *timestamp)
+static int write_to_log(char *buffer, unsigned long data_type, time_t *timestamp)
 {
 	FILE *fp;
 	time_t log_time = 0L;
@@ -183,11 +85,9 @@ int write_to_log(char *buffer, unsigned long data_type, time_t *timestamp)
 	return OK;
 }
 
-
 /* write something to the syslog facility */
-int write_to_syslog(char *buffer, unsigned long data_type)
+static int write_to_syslog(char *buffer, unsigned long data_type)
 {
-
 	if (buffer == NULL)
 		return ERROR;
 
@@ -209,6 +109,99 @@ int write_to_syslog(char *buffer, unsigned long data_type)
 	return OK;
 }
 
+/* write something to the log file and syslog facility */
+static int write_to_all_logs(char *buffer, unsigned long data_type)
+{
+
+	/* write to syslog */
+	write_to_syslog(buffer, data_type);
+
+	/* write to main log */
+	write_to_log(buffer, data_type, NULL);
+
+	return OK;
+}
+
+/* write something to the log file, syslog, and possibly the console */
+static void write_to_logs_and_console(char *buffer, unsigned long data_type, int display)
+{
+	register int len = 0;
+	register int x = 0;
+
+	/* strip unnecessary newlines */
+	len = strlen(buffer);
+	for (x = len - 1; x >= 0; x--) {
+		if (buffer[x] == '\n')
+			buffer[x] = '\x0';
+		else
+			break;
+	}
+
+	/* write messages to the logs */
+	write_to_all_logs(buffer, data_type);
+
+	/* write message to the console */
+	if (display == TRUE) {
+
+		/* don't display warnings if we're just testing scheduling */
+		if (test_scheduling == TRUE && data_type == NSLOG_VERIFICATION_WARNING)
+			return;
+
+		write_to_console(buffer);
+	}
+}
+
+/* The main logging function */
+void logit(int data_type, const char *fmt, ...)
+{
+	va_list ap;
+	char *buffer = NULL;
+
+	va_start(ap, fmt);
+	if (vasprintf(&buffer, fmt, ap) > 0) {
+		write_to_logs_and_console(buffer, data_type, TRUE);
+		free(buffer);
+	}
+	va_end(ap);
+}
+
+/* write something to the log file and syslog facility */
+static void write_to_all_logs_with_timestamp(char *buffer, unsigned long data_type, time_t *timestamp)
+{
+	/* write to syslog */
+	write_to_syslog(buffer, data_type);
+
+	/* write to main log */
+	write_to_log(buffer, data_type, timestamp);
+}
+
+int fix_log_file_owner(uid_t uid, gid_t gid)
+{
+	int r1 = 0, r2 = 0;
+
+	if (!(log_fp = open_log_file()))
+		return -1;
+	r1 = fchown(fileno(log_fp), uid, gid);
+
+	if (open_debug_log() != OK)
+		return -1;
+	if (debug_file_fp)
+		r2 = fchown(fileno(debug_file_fp), uid, gid);
+
+	/* return 0 if both are 0 and otherwise < 0 */
+	return r1 < r2 ? r1 : r2;
+}
+
+int close_log_file(void)
+{
+	if (!log_fp)
+		return 0;
+
+	fflush(log_fp);
+	fclose(log_fp);
+	log_fp = NULL;
+	return 0;
+}
 
 /* write a service problem/recovery to the naemon log file */
 int log_service_event(service *svc)
