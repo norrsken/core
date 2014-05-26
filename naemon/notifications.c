@@ -794,7 +794,7 @@ int notify_contact_of_service(nagios_macros *mac, contact *cntct, service *svc, 
 			}
 
 			process_macros_r(mac, temp_buffer, &processed_buffer, 0);
-			logit(NSLOG_SERVICE_NOTIFICATION, processed_buffer);
+			logit(NSLOG_SERVICE_NOTIFICATION, "%s", processed_buffer);
 
 			my_free(temp_buffer);
 			my_free(processed_buffer);
@@ -1703,7 +1703,7 @@ int notify_contact_of_host(nagios_macros *mac, contact *cntct, host *hst, int ty
 			}
 
 			process_macros_r(mac, temp_buffer, &processed_buffer, 0);
-			logit(NSLOG_HOST_NOTIFICATION, processed_buffer);
+			logit(NSLOG_HOST_NOTIFICATION, "%s", processed_buffer);
 
 			my_free(temp_buffer);
 			my_free(processed_buffer);

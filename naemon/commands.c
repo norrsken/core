@@ -3059,9 +3059,9 @@ int process_external_command1(char *cmd)
 	if (id == CMD_PROCESS_SERVICE_CHECK_RESULT || id == CMD_PROCESS_HOST_CHECK_RESULT) {
 		/* passive checks are logged in checks.c as well, as some my bypass external commands by getting dropped in checkresults dir */
 		if (log_passive_checks == TRUE)
-			logit(NSLOG_PASSIVE_CHECK, temp_buffer);
+			logit(NSLOG_PASSIVE_CHECK, "%s", temp_buffer);
 	} else if (log_external_commands == TRUE) {
-			logit(NSLOG_EXTERNAL_COMMAND, temp_buffer);
+			logit(NSLOG_EXTERNAL_COMMAND, "%s", temp_buffer);
 	}
 	my_free(temp_buffer);
 
