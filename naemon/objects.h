@@ -165,15 +165,6 @@ typedef struct check_result {
 } check_result;
 
 
-/* DBUF structure - dynamic string storage */
-typedef struct dbuf {
-	char *buf;
-	unsigned long used_size;
-	unsigned long allocated_size;
-	unsigned long chunk_size;
-} dbuf;
-
-
 #define CHECK_STATS_BUCKETS                  15
 
 /* used for tracking host and service check statistics */

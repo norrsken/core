@@ -1,3 +1,4 @@
+#include <glib.h>
 #include "config.h"
 #include "common.h"
 #include "objects.h"
@@ -316,8 +317,7 @@ int my_system_r(nagios_macros *mac, char *cmd, int timeout, int *early_timeout, 
 	FILE *fp = NULL;
 	int bytes_read = 0;
 	struct timeval start_time, end_time;
-	dbuf output_dbuf;
-	int dbuf_chunk = 1024;
+	GString *output_dbuf = g_string_new("");
 	int flags;
 
 
@@ -479,9 +479,6 @@ int my_system_r(nagios_macros *mac, char *cmd, int timeout, int *early_timeout, 
 	if (result < -1 || result > 3)
 		result = STATE_UNKNOWN;
 
-	/* initialize dynamic buffer */
-	dbuf_init(&output_dbuf, dbuf_chunk);
-
 	/* Opsera patch to check timeout before attempting to read output via pipe. Originally by Sven Nierlein */
 	/* if there was a critical return code AND the command time exceeded the timeout thresholds, assume a timeout */
 	if (result == STATE_CRITICAL && (end_time.tv_sec - start_time.tv_sec) >= timeout) {
@@ -508,7 +505,7 @@ int my_system_r(nagios_macros *mac, char *cmd, int timeout, int *early_timeout, 
 			/* append data we just read to dynamic buffer */
 			if (bytes_read > 0) {
 				buffer[bytes_read] = '\x0';
-				dbuf_strcat(&output_dbuf, buffer);
+				g_string_append(output_dbuf, buffer);
 				continue;
 			}
 
@@ -536,23 +533,23 @@ int my_system_r(nagios_macros *mac, char *cmd, int timeout, int *early_timeout, 
 		} while (1);
 
 		/* cap output length - this isn't necessary, but it keeps runaway plugin output from causing problems */
-		if (max_output_length > 0  && (int)output_dbuf.used_size > max_output_length)
-			output_dbuf.buf[max_output_length] = '\x0';
+		if (max_output_length > 0  && (int)output_dbuf->len > max_output_length)
+			output_dbuf->str[max_output_length] = '\x0';
 
-		if (output != NULL && output_dbuf.buf)
-			*output = (char *)strdup(output_dbuf.buf);
+		if (output != NULL && output_dbuf->str)
+			*output = (char *)strdup(output_dbuf->str);
 
 	}
 
-	log_debug_info(DEBUGL_COMMANDS, 1, "Execution time=%.3f sec, early timeout=%d, result=%d, output=%s\n", *exectime, *early_timeout, result, (output_dbuf.buf == NULL) ? "(null)" : output_dbuf.buf);
+	log_debug_info(DEBUGL_COMMANDS, 1, "Execution time=%.3f sec, early timeout=%d, result=%d, output=%s\n", *exectime, *early_timeout, result, (output_dbuf->str == NULL) ? "(null)" : output_dbuf->str);
 
 #ifdef USE_EVENT_BROKER
 	/* send data to event broker */
-	broker_system_command(NEBTYPE_SYSTEM_COMMAND_END, NEBFLAG_NONE, NEBATTR_NONE, start_time, end_time, *exectime, timeout, *early_timeout, result, cmd, (output_dbuf.buf == NULL) ? NULL : output_dbuf.buf, NULL);
+	broker_system_command(NEBTYPE_SYSTEM_COMMAND_END, NEBFLAG_NONE, NEBATTR_NONE, start_time, end_time, *exectime, timeout, *early_timeout, result, cmd, (output_dbuf->str == NULL) ? NULL : output_dbuf->str, NULL);
 #endif
 
 	/* free memory */
-	dbuf_free(&output_dbuf);
+	g_string_free(output_dbuf, TRUE);
 
 	/* close the pipe for reading */
 	close(fd[0]);
@@ -2395,88 +2392,6 @@ int my_fcopy(char *source, char *dest)
 	close(dest_fd);
 	return result;
 }
-
-
-/******************************************************************/
-/******************** DYNAMIC BUFFER FUNCTIONS ********************/
-/******************************************************************/
-
-/* initializes a dynamic buffer */
-int dbuf_init(dbuf *db, int chunk_size)
-{
-
-	if (db == NULL)
-		return ERROR;
-
-	db->buf = NULL;
-	db->used_size = 0L;
-	db->allocated_size = 0L;
-	db->chunk_size = chunk_size;
-
-	return OK;
-}
-
-
-/* frees a dynamic buffer */
-int dbuf_free(dbuf *db)
-{
-
-	if (db == NULL)
-		return ERROR;
-
-	if (db->buf != NULL)
-		my_free(db->buf);
-	db->buf = NULL;
-	db->used_size = 0L;
-	db->allocated_size = 0L;
-
-	return OK;
-}
-
-
-/* dynamically expands a string */
-int dbuf_strcat(dbuf *db, const char *buf)
-{
-	char *newbuf = NULL;
-	unsigned long buflen = 0L;
-	unsigned long new_size = 0L;
-	unsigned long memory_needed = 0L;
-
-	if (db == NULL || buf == NULL)
-		return ERROR;
-
-	/* how much memory should we allocate (if any)? */
-	buflen = strlen(buf);
-	new_size = db->used_size + buflen + 1;
-
-	/* we need more memory */
-	if (db->allocated_size < new_size) {
-
-		memory_needed = ((ceil(new_size / db->chunk_size) + 1) * db->chunk_size);
-
-		/* allocate memory to store old and new string */
-		if ((newbuf = (char *)realloc((void *)db->buf, (size_t)memory_needed)) == NULL)
-			return ERROR;
-
-		/* update buffer pointer */
-		db->buf = newbuf;
-
-		/* update allocated size */
-		db->allocated_size = memory_needed;
-
-		/* terminate buffer */
-		db->buf[db->used_size] = '\x0';
-	}
-
-	/* append the new string */
-	strcat(db->buf, buf);
-
-	/* update size allocated */
-	db->used_size += buflen;
-
-	return OK;
-}
-
 
 /******************************************************************/
 /********************** CHECK STATS FUNCTIONS *********************/

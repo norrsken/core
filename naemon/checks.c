@@ -1,3 +1,4 @@
+#include <glib.h>
 #include "checks.h"
 #include "config.h"
 #include "comments.h"
@@ -2956,7 +2957,7 @@ int handle_host_state(host *hst, int *alert_recorded)
 struct check_output *parse_output(const char *buf, struct check_output *check_output) {
 	char *saveptr = NULL, *tmpbuf = NULL;
 	char *p = NULL, *tmp = NULL;
-	dbuf perf_data_dbuf;
+	GString *perf_data_dbuf = g_string_new("");
 
 	check_output->perf_data = NULL;
 	check_output->long_output = NULL;
@@ -2965,7 +2966,6 @@ struct check_output *parse_output(const char *buf, struct check_output *check_ou
 		return check_output;
 	tmpbuf = strdup(buf);
 
-	dbuf_init(&perf_data_dbuf, 1024);
 	tmp = strtok_r(tmpbuf, "\n", &saveptr);
 	p = strpbrk((const char *) tmp, "|");
 	if (p == NULL) {
@@ -2986,7 +2986,7 @@ struct check_output *parse_output(const char *buf, struct check_output *check_ou
 		else {
 			check_output->short_output = strdup("");
 		}
-		dbuf_strcat(&perf_data_dbuf, tmp+(p-tmp)+1);
+		g_string_append(perf_data_dbuf, tmp+(p-tmp)+1);
 	}
 
 	/*
@@ -3023,16 +3023,16 @@ struct check_output *parse_output(const char *buf, struct check_output *check_ou
 				 * it this way in order to not break existing installations.
 				 * */
 				if (*tmp != ' ') {
-					dbuf_strcat(&perf_data_dbuf, " ");
+					g_string_append(perf_data_dbuf, " ");
 				}
-				dbuf_strcat(&perf_data_dbuf, tmp);
+				g_string_append(perf_data_dbuf, tmp);
 				tmp = strtok_r(NULL, "\n", &saveptr);
 			}
 		}
 	}
 
-	check_output->perf_data = perf_data_dbuf.buf != NULL ? strdup(perf_data_dbuf.buf) : NULL;
-	dbuf_free(&perf_data_dbuf);
+	check_output->perf_data = perf_data_dbuf->str != NULL ? strdup(perf_data_dbuf->str) : NULL;
+	g_string_free(perf_data_dbuf, TRUE);
 	free(tmpbuf);
 	return check_output;
 }
