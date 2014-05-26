@@ -1,3 +1,4 @@
+#include <glib.h>
 #include <string.h>
 #include "config.h"
 #include "common.h"
@@ -12,7 +13,19 @@
  * Escalations are attached to the objects they belong to.
  * Dependencies are attached to the dependent end of the object chain.
  */
-nae_hash_table *object_hash_tables[NUM_HASHED_OBJECT_TYPES];
+GHashTable *object_hash_tables[NUM_HASHED_OBJECT_TYPES];
+struct servicekey {
+	const char *k1;
+	const char *k2;
+};
+guint service_hash(gconstpointer v)
+{
+	return g_str_hash(((struct servicekey *)v)->k1) ^ g_str_hash(((struct servicekey *)v)->k2);
+}
+gboolean service_equal(gconstpointer v1, gconstpointer v2)
+{
+	return g_str_equal(((struct servicekey *)v1)->k1, ((struct servicekey *)v2)->k1) || g_str_equal(((struct servicekey *)v1)->k2, ((struct servicekey *)v2)->k2);
+}
 
 command *command_list = NULL;
 timeperiod *timeperiod_list = NULL;
@@ -301,7 +314,9 @@ int create_object_tables(unsigned int *ocount)
 		const unsigned int hash_size = ocount[i] * 1.5;
 		if (!hash_size)
 			continue;
-		object_hash_tables[i] = i == OBJTYPE_SERVICE ? nae_hash_create_dk(hash_size) : nae_hash_create_string(hash_size);
+		object_hash_tables[i] = i == OBJTYPE_SERVICE ?
+			g_hash_table_new_full(service_hash, service_equal, free, NULL) :
+			g_hash_table_new(g_str_hash, g_str_equal);
 		if (!object_hash_tables[i]) {
 			logit(NSLOG_CONFIG_ERROR,
 			      "Failed to create hash table with %u entries\n", hash_size);
@@ -364,22 +379,7 @@ timeperiod *add_timeperiod(char *name, char *alias)
 
 	/* add new timeperiod to hash table */
 	if (result == OK) {
-		result = nae_hash_insert(object_hash_tables[OBJTYPE_TIMEPERIOD], new_timeperiod->name, new_timeperiod);
-		switch (result) {
-		case NAE_HASH_EDUPE:
-			logit(NSLOG_CONFIG_ERROR,
-			      "Error: Timeperiod '%s' has already been defined\n", name);
-			result = ERROR;
-			break;
-		case NAE_HASH_OK:
-			result = OK;
-			break;
-		default:
-			logit(NSLOG_CONFIG_ERROR,
-			      "Error: Could not add timeperiod '%s' to hash table\n", name);
-			result = ERROR;
-			break;
-		}
+		g_hash_table_insert(object_hash_tables[OBJTYPE_TIMEPERIOD], new_timeperiod->name, new_timeperiod);
 	}
 
 	/* handle errors */
@@ -660,22 +660,7 @@ host *add_host(char *name, char *display_name, char *alias, char *address, char 
 
 	/* add new host to hash table */
 	if (result == OK) {
-		result = nae_hash_insert(object_hash_tables[OBJTYPE_HOST], new_host->name, new_host);
-		switch (result) {
-		case NAE_HASH_EDUPE:
-			logit(NSLOG_CONFIG_ERROR,
-			      "Error: Host '%s' has already been defined\n", name);
-			result = ERROR;
-			break;
-		case NAE_HASH_OK:
-			result = OK;
-			break;
-		default:
-			logit(NSLOG_CONFIG_ERROR,
-			      "Error: Could not add host '%s' to hash table\n", name);
-			result = ERROR;
-			break;
-		}
+		g_hash_table_insert(object_hash_tables[OBJTYPE_HOST], new_host->name, new_host);
 	}
 
 	/* handle errors */
@@ -882,22 +867,7 @@ hostgroup *add_hostgroup(char *name, char *alias, char *notes, char *notes_url, 
 
 	/* add new host group to hash table */
 	if (result == OK) {
-		result = nae_hash_insert(object_hash_tables[OBJTYPE_HOSTGROUP], new_hostgroup->group_name, new_hostgroup);
-		switch (result) {
-		case NAE_HASH_EDUPE:
-			logit(NSLOG_CONFIG_ERROR,
-			      "Error: Hostgroup '%s' has already been defined\n", name);
-			result = ERROR;
-			break;
-		case NAE_HASH_OK:
-			result = OK;
-			break;
-		default:
-			logit(NSLOG_CONFIG_ERROR,
-			      "Error: Could not add hostgroup '%s' to hash table\n", name);
-			result = ERROR;
-			break;
-		}
+		g_hash_table_insert(object_hash_tables[OBJTYPE_HOSTGROUP], new_hostgroup->group_name, new_hostgroup);
 	}
 
 	/* handle errors */
@@ -999,22 +969,7 @@ servicegroup *add_servicegroup(char *name, char *alias, char *notes, char *notes
 
 	/* add new service group to hash table */
 	if (result == OK) {
-		result = nae_hash_insert(object_hash_tables[OBJTYPE_SERVICEGROUP], new_servicegroup->group_name, new_servicegroup);
-		switch (result) {
-		case NAE_HASH_EDUPE:
-			logit(NSLOG_CONFIG_ERROR,
-			      "Error: Servicegroup '%s' has already been defined\n", name);
-			result = ERROR;
-			break;
-		case NAE_HASH_OK:
-			result = OK;
-			break;
-		default:
-			logit(NSLOG_CONFIG_ERROR,
-			      "Error: Could not add servicegroup '%s' to hash table\n", name);
-			result = ERROR;
-			break;
-		}
+		g_hash_table_insert(object_hash_tables[OBJTYPE_SERVICEGROUP], new_servicegroup->group_name, new_servicegroup);
 	}
 
 	/* handle errors */
@@ -1162,22 +1117,7 @@ contact *add_contact(char *name, char *alias, char *email, char *pager, char **a
 
 	/* add new contact to hash table */
 	if (result == OK) {
-		result = nae_hash_insert(object_hash_tables[OBJTYPE_CONTACT], new_contact->name, new_contact);
-		switch (result) {
-		case NAE_HASH_EDUPE:
-			logit(NSLOG_CONFIG_ERROR,
-			      "Error: Contact '%s' has already been defined\n", name);
-			result = ERROR;
-			break;
-		case NAE_HASH_OK:
-			result = OK;
-			break;
-		default:
-			logit(NSLOG_CONFIG_ERROR,
-			      "Error: Could not add contact '%s' to hash table\n", name);
-			result = ERROR;
-			break;
-		}
+		g_hash_table_insert(object_hash_tables[OBJTYPE_CONTACT], new_contact->name, new_contact);
 	}
 
 	/* handle errors */
@@ -1297,22 +1237,7 @@ contactgroup *add_contactgroup(char *name, char *alias)
 
 	/* add new contact group to hash table */
 	if (result == OK) {
-		result = nae_hash_insert(object_hash_tables[OBJTYPE_CONTACTGROUP], new_contactgroup->group_name, new_contactgroup);
-		switch (result) {
-		case NAE_HASH_EDUPE:
-			logit(NSLOG_CONFIG_ERROR,
-			      "Error: Contactgroup '%s' has already been defined\n", name);
-			result = ERROR;
-			break;
-		case NAE_HASH_OK:
-			result = OK;
-			break;
-		default:
-			logit(NSLOG_CONFIG_ERROR,
-			      "Error: Could not add contactgroup '%s' to hash table\n", name);
-			result = ERROR;
-			break;
-		}
+		g_hash_table_insert(object_hash_tables[OBJTYPE_CONTACTGROUP], new_contactgroup->group_name, new_contactgroup);
 	}
 
 	/* handle errors */
@@ -1515,25 +1440,10 @@ service *add_service(char *host_name, char *description, char *display_name, cha
 
 	/* add new service to hash table */
 	if (result == OK) {
-		struct dkkey *key = calloc(1, sizeof(struct dkkey));
+		struct servicekey *key = calloc(1, sizeof(struct servicekey));
 		key->k1 = new_service->host_name;
 		key->k2 = new_service->description;
-		result = nae_hash_insert(object_hash_tables[OBJTYPE_SERVICE], key, new_service);
-		switch (result) {
-		case NAE_HASH_EDUPE:
-			logit(NSLOG_CONFIG_ERROR,
-			      "Error: Service '%s' on host '%s' has already been defined\n", description, host_name);
-			result = ERROR;
-			break;
-		case NAE_HASH_OK:
-			result = OK;
-			break;
-		default:
-			logit(NSLOG_CONFIG_ERROR,
-			      "Error: Could not add service '%s' on host '%s' to hash table\n", description, host_name);
-			result = ERROR;
-			break;
-		}
+		g_hash_table_insert(object_hash_tables[OBJTYPE_SERVICE], key, new_service);
 	}
 
 	/* handle errors */
@@ -1606,22 +1516,7 @@ command *add_command(char *name, char *value)
 
 	/* add new command to hash table */
 	if (result == OK) {
-		result = nae_hash_insert(object_hash_tables[OBJTYPE_COMMAND], new_command->name, new_command);
-		switch (result) {
-		case NAE_HASH_EDUPE:
-			logit(NSLOG_CONFIG_ERROR,
-			      "Error: Command '%s' has already been defined\n", name);
-			result = ERROR;
-			break;
-		case NAE_HASH_OK:
-			result = OK;
-			break;
-		default:
-			logit(NSLOG_CONFIG_ERROR,
-			      "Error: Could not add command '%s' to hash table\n", name);
-			result = ERROR;
-			break;
-		}
+		g_hash_table_insert(object_hash_tables[OBJTYPE_COMMAND], new_command->name, new_command);
 	}
 
 	/* handle errors */
@@ -1998,32 +1893,32 @@ customvariablesmember *add_custom_variable_to_object(customvariablesmember **obj
 
 timeperiod *find_timeperiod(const char *name)
 {
-	return nae_hash_get(object_hash_tables[OBJTYPE_TIMEPERIOD], name);
+	return g_hash_table_lookup(object_hash_tables[OBJTYPE_TIMEPERIOD], name);
 }
 
 host *find_host(const char *name)
 {
-	return nae_hash_get(object_hash_tables[OBJTYPE_HOST], name);
+	return g_hash_table_lookup(object_hash_tables[OBJTYPE_HOST], name);
 }
 
 hostgroup *find_hostgroup(const char *name)
 {
-	return nae_hash_get(object_hash_tables[OBJTYPE_HOSTGROUP], name);
+	return g_hash_table_lookup(object_hash_tables[OBJTYPE_HOSTGROUP], name);
 }
 
 servicegroup *find_servicegroup(const char *name)
 {
-	return nae_hash_get(object_hash_tables[OBJTYPE_SERVICEGROUP], name);
+	return g_hash_table_lookup(object_hash_tables[OBJTYPE_SERVICEGROUP], name);
 }
 
 contact *find_contact(const char *name)
 {
-	return nae_hash_get(object_hash_tables[OBJTYPE_CONTACT], name);
+	return g_hash_table_lookup(object_hash_tables[OBJTYPE_CONTACT], name);
 }
 
 contactgroup *find_contactgroup(const char *name)
 {
-	return nae_hash_get(object_hash_tables[OBJTYPE_CONTACTGROUP], name);
+	return g_hash_table_lookup(object_hash_tables[OBJTYPE_CONTACTGROUP], name);
 }
 
 /* find a command with arguments still attached */
@@ -2046,13 +1941,13 @@ command *find_bang_command(char *name)
 
 command *find_command(const char *name)
 {
-	return nae_hash_get(object_hash_tables[OBJTYPE_COMMAND], name);
+	return g_hash_table_lookup(object_hash_tables[OBJTYPE_COMMAND], name);
 }
 
 service *find_service(const char *host_name, const char *svc_desc)
 {
-	struct dkkey key = {host_name, svc_desc};
-	return nae_hash_get(object_hash_tables[OBJTYPE_SERVICE], &key);
+	struct servicekey key = {host_name, svc_desc};
+	return g_hash_table_lookup(object_hash_tables[OBJTYPE_SERVICE], &key);
 }
 
 
@@ -2406,9 +2301,9 @@ int free_object_data(void)
 	 * while we're busy removing it.
 	 */
 	for (i = 0; i < ARRAY_SIZE(object_hash_tables); i++) {
-		nae_hash_table *t = object_hash_tables[i];
+		GHashTable *t = object_hash_tables[i];
 		object_hash_tables[i] = NULL;
-		nae_hash_destroy(t, NULL);
+		g_hash_table_destroy(t);
 	}
 
 	/**** free memory for the timeperiod list ****/

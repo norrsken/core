@@ -1,3 +1,4 @@
+#include <glib.h>
 #include <unistd.h>
 #include <stdio.h>
 #include <stdarg.h>
@@ -40,7 +41,7 @@ static squeue_t *sq;
 static unsigned int started, running_jobs, timeouts, reapable;
 static nsock_sock *master_sock;
 static int parent_pid;
-static nae_hash_table *ptab;
+static GHashTable *ptab;
 
 static void exit_worker(int code, const char *msg)
 {
@@ -199,7 +200,7 @@ static void destroy_job(child_process *cp)
 	 */
 	squeue_remove(sq, cp->ei->sq_event);
 	running_jobs--;
-	nae_hash_remove(ptab, (void *)(size_t)cp->ei->pid);
+	g_hash_table_remove(ptab, (void *)(size_t)cp->ei->pid);
 
 	if (cp->outstd.buf) {
 		free(cp->outstd.buf);
@@ -498,7 +499,7 @@ static void reap_jobs(void)
 			struct child_process *cp;
 
 			reapable--;
-			if (!(cp = nae_hash_get(ptab, (void *)(size_t)pid))) {
+			if (!(cp = g_hash_table_lookup(ptab, (void *)(size_t)pid))) {
 				/* we reaped a lost child. Odd that */
 				continue;
 			}
@@ -537,7 +538,7 @@ int start_cmd(child_process *cp)
 		wlog("Failed to register iobroker for stdout");
 	if (iobroker_register(iobs, cp->outerr.fd, cp, stderr_handler))
 		wlog("Failed to register iobroker for stderr");
-	nae_hash_insert(ptab, (void *)(size_t)cp->ei->pid, cp);
+	g_hash_table_insert(ptab, (void *)(size_t)cp->ei->pid, cp);
 
 	return 0;
 }
@@ -796,7 +797,7 @@ void enter_worker(nsock_sock *sock, int (*cb)(child_process *))
 		}
 	}
 
-	ptab = nae_hash_create_long(4096);
+	ptab = g_hash_table_new(g_direct_hash, g_direct_equal);
 
 	iobs = iobroker_create();
 

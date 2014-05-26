@@ -7,6 +7,7 @@
  * all of Naemon into it, and that they can remain general-purpose
  * code that can be reused for other things later.
  */
+#include <glib.h>
 #include "workers.h"
 #include "config.h"
 #include <string.h>
@@ -43,7 +44,7 @@ struct wproc_worker {
 	int jobs_started; /**< jobs started */
 	int job_index; /**< round-robin slot allocator (this wraps) */
 	iocache *ioc;  /**< iocache for reading from worker */
-	nae_hash_table *jobs; /**< array of jobs */
+	GHashTable *jobs; /**< array of jobs */
 	struct wproc_list *wp_list;
 };
 
@@ -55,8 +56,7 @@ struct wproc_list {
 
 static struct wproc_list workers = {0, 0, NULL};
 
-static nae_hash_table *specialized_workers;
-static struct wproc_list *to_remove = NULL;
+static GHashTable *specialized_workers;
 
 unsigned int wproc_num_workers_online = 0, wproc_num_workers_desired = 0;
 unsigned int wproc_num_workers_spawned = 0;
@@ -150,7 +150,9 @@ static int get_job_id(struct wproc_worker *wp)
 
 static struct wproc_job *get_job(struct wproc_worker *wp, int job_id)
 {
-	return nae_hash_remove(wp->jobs, (void *)(size_t)job_id);
+	struct wproc_job *job = g_hash_table_lookup(wp->jobs, (void *)(size_t)job_id);
+	g_hash_table_remove(wp->jobs, (void *)(size_t)job_id);
+	return job;
 }
 
 
@@ -173,9 +175,9 @@ static struct wproc_list *get_wproc_list(const char *cmd)
 		slash = strrchr(cmd_name, '/');
 	}
 
-	wp_list = nae_hash_get(specialized_workers, cmd_name ? cmd_name : cmd);
+	wp_list = g_hash_table_lookup(specialized_workers, cmd_name ? cmd_name : cmd);
 	if (!wp_list && slash) {
-		wp_list = nae_hash_get(specialized_workers, ++slash);
+		wp_list = g_hash_table_lookup(specialized_workers, ++slash);
 	}
 	if (wp_list != NULL) {
 		log_debug_info(DEBUGL_CHECKS, 1, "Found specialized worker(s) for '%s'", (slash && *slash != '/') ? slash : cmd_name);
@@ -219,7 +221,7 @@ static void destroy_job(struct wproc_job *job)
 
 	my_free(job->command);
 	if (job->wp) {
-		nae_hash_remove(job->wp->jobs, (void *)(size_t)job->id);
+		g_hash_table_remove(job->wp->jobs, (void *)(size_t)job->id);
 		job->wp->jobs_running--;
 	}
 	loadctl.jobs_running--;
@@ -260,7 +262,7 @@ static int wproc_destroy(struct wproc_worker *wp, int flags)
 	iocache_destroy(wp->ioc);
 	wp->ioc = NULL;
 	my_free(wp->name);
-	nae_hash_destroy(wp->jobs, fo_destroy_job);
+	g_hash_table_destroy(wp->jobs);
 	wp->jobs = NULL;
 
 	/* workers must never control other workers, so they return early */
@@ -283,12 +285,11 @@ static int wproc_destroy(struct wproc_worker *wp, int flags)
 	return 0;
 }
 
-/* remove the worker list pointed to by to_remove */
-static int remove_specialized(void *data)
+static int remove_specialized(void *key, void *data, void *arg)
 {
-	if (data == to_remove)
-		return NAE_HASH_WALK_REMOVE;
-	return 0;
+	if (data == arg)
+		return TRUE;
+	return FALSE;
 }
 
 /* remove worker from job assignment list */
@@ -306,8 +307,7 @@ static void remove_worker(struct wproc_worker *worker)
 	if (!specialized_workers || wpl->len)
 		return;
 
-	to_remove = wpl;
-	nae_hash_walk(specialized_workers, remove_specialized);
+	g_hash_table_foreach_remove(specialized_workers, remove_specialized, wpl);
 }
 
 
@@ -330,9 +330,7 @@ void free_worker_memory(int flags)
 
 		free(workers.wps);
 	}
-	to_remove = NULL;
-	nae_hash_walk(specialized_workers, remove_specialized);
-	nae_hash_destroy(specialized_workers, NULL);
+	g_hash_table_destroy(specialized_workers);
 	workers.wps = NULL;
 	workers.len = 0;
 	workers.idx = 0;
@@ -464,13 +462,14 @@ static int parse_worker_result(wproc_result *wpres, struct kvvec *kvv)
 }
 
 static int wproc_run_job(struct wproc_job *job, nagios_macros *mac);
-static void fo_reassign_wproc_job(void *job_)
+static gboolean fo_reassign_wproc_job(void *key, void *job_, void *arg)
 {
 	struct wproc_job *job = (struct wproc_job *)job_;
 	job->wp = get_worker(job->command);
 	job->id = get_job_id(job->wp);
 	/* macros aren't used right now anyways */
 	wproc_run_job(job, NULL);
+	return TRUE;
 }
 
 static int handle_worker_result(int sd, int events, void *arg)
@@ -505,7 +504,7 @@ static int handle_worker_result(int sd, int events, void *arg)
 			      "wproc: All our workers are dead, we can't do anything!");
 		}
 		remove_worker(wp);
-		nae_hash_destroy(wp->jobs, fo_reassign_wproc_job);
+		g_hash_table_foreach_steal(wp->jobs, fo_reassign_wproc_job, NULL);
 		wp->jobs = NULL;
 		wproc_destroy(wp, 0);
 		return 0;
@@ -629,12 +628,12 @@ static int register_worker(int sd, char *buf, unsigned int len)
 		} else if (!strcmp(kv->key, "plugin")) {
 			struct wproc_list *command_handlers;
 			is_global = 0;
-			if (!(command_handlers = nae_hash_get(specialized_workers, kv->value))) {
+			if (!(command_handlers = g_hash_table_lookup(specialized_workers, kv->value))) {
 				command_handlers = calloc(1, sizeof(struct wproc_list));
 				command_handlers->wps = calloc(1, sizeof(struct wproc_worker **));
 				command_handlers->len = 1;
 				command_handlers->wps[0] = worker;
-				nae_hash_insert(specialized_workers,
+				g_hash_table_insert(specialized_workers,
 						strdup(kv->value),
 						command_handlers);
 			} else {
@@ -655,7 +654,7 @@ static int register_worker(int sd, char *buf, unsigned int len)
 		 */
 		worker->max_jobs = (iobroker_max_usable_fds() / 2) - 50;
 	}
-	worker->jobs = nae_hash_create_long(worker->max_jobs);
+	worker->jobs = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, fo_destroy_job);
 
 	if (is_global) {
 		workers.len++;
@@ -714,7 +713,7 @@ int init_workers(int desired_workers)
 	 * we register our query handler before launching workers,
 	 * so other workers can join us whenever they're ready
 	 */
-	specialized_workers = nae_hash_create_string(512);
+	specialized_workers = g_hash_table_new_full(g_str_hash, g_str_equal, free, free);
 	if (!qh_register_handler("wproc", "Worker process management and info", 0, wproc_query_handler))
 		logit(NSLOG_INFO_MESSAGE,
 		      "wproc: Successfully registered manager as @wproc with query handler\n");
@@ -747,7 +746,8 @@ static struct wproc_job *create_job(void (*callback)(struct wproc_result *, void
 	job->callback = callback;
 	job->data = data;
 	job->timeout = timeout;
-	if (nae_hash_insert(wp->jobs, (void *)(size_t)job->id, job) < 0 || !(job->command = strdup(cmd))) {
+	g_hash_table_insert(wp->jobs, (void *)(size_t)job->id, job);
+	if (!(job->command = strdup(cmd))) {
 		free(job);
 		return NULL;
 	}

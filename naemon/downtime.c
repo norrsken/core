@@ -1,3 +1,4 @@
+#include <glib.h>
 #include "config.h"
 #include "common.h"
 #include "comments.h"
@@ -13,7 +14,7 @@
 
 scheduled_downtime *scheduled_downtime_list = NULL;
 int		   defer_downtime_sorting = 0;
-static nae_hash_table *dt_fanout;
+static GHashTable *dt_fanout;
 
 
 #define DT_ENULL (-1)
@@ -133,10 +134,7 @@ static int downtime_add(scheduled_downtime *dt)
 		next_downtime_id = dt->downtime_id + 1;
 	}
 
-	if (nae_hash_insert(dt_fanout, (void *)(size_t)dt->downtime_id, dt) < 0) {
-		next_downtime_id = prev_downtime_id;
-		return errno;
-	}
+	g_hash_table_replace(dt_fanout, (void *)(size_t)dt->downtime_id, dt);
 
 	if (defer_downtime_sorting || !scheduled_downtime_list ||
 	    downtime_compar(&dt, &scheduled_downtime_list) < 0) {
@@ -173,7 +171,7 @@ static int downtime_add(scheduled_downtime *dt)
 
 static void downtime_remove(scheduled_downtime *dt)
 {
-	nae_hash_remove(dt_fanout, (void *)(size_t)dt->downtime_id);
+	g_hash_table_remove(dt_fanout, (void *)(size_t)dt->downtime_id);
 	if (scheduled_downtime_list == dt) {
 		scheduled_downtime_list = dt->next;
 		if (scheduled_downtime_list)
@@ -194,7 +192,7 @@ static void downtime_remove(scheduled_downtime *dt)
 int initialize_downtime_data(void)
 {
 	log_debug_info(DEBUGL_FUNCTIONS, 0, "initialize_downtime_data()\n");
-	dt_fanout = nae_hash_create_long(16384);
+	dt_fanout = g_hash_table_new(g_direct_hash, g_direct_equal);
 	next_downtime_id = 1;
 	return dt_fanout ? OK : ERROR;
 }
@@ -1252,7 +1250,7 @@ scheduled_downtime *find_downtime(int type, unsigned long downtime_id)
 
 	log_debug_info(DEBUGL_FUNCTIONS, 0, "find_downtime()\n");
 
-	dt = nae_hash_get(dt_fanout, (void *)(size_t)downtime_id);
+	dt = g_hash_table_lookup(dt_fanout, (void *)(size_t)downtime_id);
 	if (dt && (type == ANY_DOWNTIME || type == dt->type))
 		return dt;
 	return NULL;
@@ -1283,7 +1281,7 @@ void free_downtime_data(void)
 	scheduled_downtime *this_downtime = NULL;
 	scheduled_downtime *next_downtime = NULL;
 
-	nae_hash_destroy(dt_fanout, NULL);
+	g_hash_table_destroy(dt_fanout);
 	dt_fanout = NULL;
 
 	/* free memory for the scheduled_downtime list */

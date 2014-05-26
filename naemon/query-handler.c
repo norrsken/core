@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <fcntl.h>
 #include <string.h>
+#include <glib.h>
 
 /* A registered handler */
 struct query_handler {
@@ -26,7 +27,7 @@ static struct query_handler *qhandlers;
 static nsock_sock *qh_listen_sock; /* the listening socket */
 static unsigned int qh_running;
 unsigned int qh_max_running = 0; /* defaults to unlimited */
-static nae_hash_table *qh_table;
+static GHashTable *qh_table;
 
 /* the echo service. stupid, but useful for testing */
 static int qh_echo(int sd, char *buf, unsigned int len)
@@ -42,7 +43,7 @@ static int qh_echo(int sd, char *buf, unsigned int len)
 
 static struct query_handler *qh_find_handler(const char *name)
 {
-	return (struct query_handler *)nae_hash_get(qh_table, name);
+	return (struct query_handler *)g_hash_table_lookup(qh_table, name);
 }
 
 /* subset of http error codes */
@@ -229,7 +230,7 @@ int qh_deregister_handler(const char *name)
 {
 	struct query_handler *qh, *next, *prev;
 
-	if (!(qh = nae_hash_remove(qh_table, name)))
+	if (!(qh = g_hash_table_lookup(qh_table, name)))
 		return 0;
 
 	next = qh->next_qh;
@@ -241,7 +242,7 @@ int qh_deregister_handler(const char *name)
 	else
 		qhandlers = next;
 
-	free(qh);
+	g_hash_table_remove(qh_table, name);
 
 	return 0;
 }
@@ -249,7 +250,6 @@ int qh_deregister_handler(const char *name)
 int qh_register_handler(const char *name, const char *description, unsigned int options, qh_handler handler)
 {
 	struct query_handler *qh;
-	int result;
 
 	if (!name)
 		return -1;
@@ -288,13 +288,7 @@ int qh_register_handler(const char *name, const char *description, unsigned int 
 		qhandlers->prev_qh = qh;
 	qhandlers = qh;
 
-	result = nae_hash_insert(qh_table, qh->name, qh);
-	if (result < 0) {
-		logit(NSLOG_RUNTIME_ERROR,
-		      "qh: Failed to insert query handler '%s' (%p) into hash table %p (%d): %s\n", name, qh, qh_table, result, strerror(errno));
-		free(qh);
-		return result;
-	}
+	g_hash_table_insert(qh_table, strdup(qh->name), qh);
 
 	return 0;
 }
@@ -307,7 +301,7 @@ void qh_deinit(const char *path)
 		next = qh->next_qh;
 		qh_deregister_handler(qh->name);
 	}
-	nae_hash_destroy(qh_table, NULL);
+	g_hash_table_destroy(qh_table);
 	qh_table = NULL;
 	qhandlers = NULL;
 
@@ -453,7 +447,7 @@ int qh_init(const char *path)
 	(void)fcntl(sd, F_SETFD, FD_CLOEXEC);
 
 	/* most likely overkill, but it's small, so... */
-	if (!(qh_table = nae_hash_create_string(1024))) {
+	if (!(qh_table = g_hash_table_new_full(g_str_hash, g_str_equal, free, free))) {
 		logit(NSLOG_RUNTIME_ERROR,
 		      "qh: Failed to create hash table\n");
 		nsock_destroy(qh_listen_sock);
@@ -463,7 +457,7 @@ int qh_init(const char *path)
 	errno = 0;
 	result = iobroker_register(nagios_iobs, sd, NULL, qh_input);
 	if (result < 0) {
-		nae_hash_destroy(qh_table, NULL);
+		g_hash_table_destroy(qh_table);
 		nsock_destroy(qh_listen_sock);
 		logit(NSLOG_RUNTIME_ERROR,
 		      "qh: Failed to register socket with io broker: %s; errno=%d: %s\n", iobroker_strerror(result), errno, strerror(errno));

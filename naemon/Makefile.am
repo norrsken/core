@@ -6,7 +6,7 @@ EXTRA_DIST = buildopts.h.in
 nobase_pkginclude_HEADERS = \
 	lib/bitmap.h    lib/kvvec.h       lib/nsock.h    lib/skiplist.h \
 	lib/libnaemon.h   lib/nspath.h   lib/snprintf.h \
-	lib/hash.h    lib/libnagios.h   lib/nsutils.h  lib/squeue.h \
+	lib/libnagios.h   lib/nsutils.h  lib/squeue.h \
 	lib/iobroker.h  lib/lnae-utils.h  lib/pqueue.h   lib/t-utils.h \
 	lib/iocache.h   lib/lnag-utils.h  lib/runcmd.h   lib/worker.h \
 	lib/rbtree.h
@@ -82,18 +82,23 @@ common_sources = \
 bin_PROGRAMS = naemon naemonstats oconfsplit shadownaemon
 naemon_SOURCES = naemon.c $(common_sources)
 
+naemon_CFLAGS = $(GLIB_CFLAGS) $(AM_CFLAGS)
 naemon_CPPFLAGS = $(AM_CPPFLAGS) -DPREFIX='"$(prefix)"'
-naemon_LDADD = lib/libnaemon.la -lm -ldl
+naemon_LDADD = lib/libnaemon.la -lm -ldl $(GLIB_LIBS)
 naemon_LDFLAGS = -rdynamic -static
 
 naemonstats_SOURCES = naemonstats.c buildopts.h lib/nspath.h lib/nspath.c defaults.h defaults.c
 
 shadownaemon_SOURCES = shadownaemon.c shadownaemon.h $(common_sources)
-shadownaemon_LDADD = lib/libnaemon.la -lm -ldl
+shadownaemon_CFLAGS = $(GLIB_CFLAGS) $(AM_CFLAGS)
+shadownaemon_CPPFLAGS = $(AM_CPPFLAGS)
+shadownaemon_LDADD = lib/libnaemon.la -lm -ldl $(GLIB_LIBS)
 shadownaemon_LDFLAGS = -rdynamic -static
 
-oconfsplit_LDADD = lib/libnaemon.la -lm -ldl
+oconfsplit_LDADD = lib/libnaemon.la -lm -ldl $(GLIB_LIBS)
 oconfsplit_SOURCES = oconfsplit.c $(common_sources)
+oconfsplit_CFLAGS = $(GLIB_CFLAGS)
+oconfsplit_CPPFLAGS = $(AM_CPPFLAGS)
 
 #naemonworker_SOURCES=
 #naemonworker_LDADD=$(top_builddir)/naemon/worker/libnaemon_worker.a \

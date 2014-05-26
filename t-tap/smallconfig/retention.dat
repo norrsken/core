@@ -5,7 +5,7 @@
 # BY NAEMON.  DO NOT MODIFY THIS FILE!
 ########################################
 info {
-created=1401044299
+created=1401126253
 version=0.8.0
 }
 program {
@@ -25,7 +25,7 @@ enable_flap_detection=1
 process_performance_data=0
 global_host_event_handler=
 global_service_event_handler=
-next_comment_id=100428
+next_comment_id=100432
 next_downtime_id=100183
 next_event_id=1288
 next_problem_id=218
@@ -119,9 +119,9 @@ current_notification_id=13392
 problem_has_been_acknowledged=0
 acknowledgement_type=0
 is_flapping=1
-percent_state_change=29.08
+percent_state_change=28.29
 check_flapping_recovery_notification=1
-state_history=1,1,2,2,1,2,2,1,1,1,1,1,1,1,2,2,2,2,1,1,1
+state_history=1,2,2,1,2,2,1,1,1,1,1,1,1,2,2,2,2,1,1,1,1
 }
 host {
 host_name=host2
@@ -167,9 +167,9 @@ notifications_enabled=0
 problem_has_been_acknowledged=0
 acknowledgement_type=0
 is_flapping=1
-percent_state_change=29.08
+percent_state_change=28.29
 check_flapping_recovery_notification=1
-state_history=1,1,2,2,1,2,2,1,1,1,1,1,1,1,2,2,2,2,1,1,1
+state_history=1,2,2,1,2,2,1,1,1,1,1,1,1,2,2,2,2,1,1,1,1
 }
 host {
 host_name=hostveryrecent
@@ -461,51 +461,68 @@ comment_data=Notifications for this service are being suppressed because it was 
 hostcomment {
 host_name=host1
 entry_type=3
-comment_id=100424
+comment_id=100428
 source=0
 persistent=0
-entry_time=1401044299
+entry_time=1401126253
 expires=0
 expire_time=0
 author=(Naemon Process)
-comment_data=Notifications for this host are being suppressed because it was detected as having been flapping between different states (29.1% change > 20.0% threshold).  When the host state stabilizes and the flapping stops, notifications will be re-enabled.
+comment_data=Notifications for this host are being suppressed because it was detected as having been flapping between different states (28.3% change > 20.0% threshold).  When the host state stabilizes and the flapping stops, notifications will be re-enabled.
 }
 hostcomment {
 host_name=host2
 entry_type=3
-comment_id=100425
+comment_id=100429
 source=0
 persistent=0
-entry_time=1401044299
+entry_time=1401126253
 expires=0
 expire_time=0
 author=(Naemon Process)
-comment_data=Notifications for this host are being suppressed because it was detected as having been flapping between different states (29.1% change > 20.0% threshold).  When the host state stabilizes and the flapping stops, notifications will be re-enabled.
+comment_data=Notifications for this host are being suppressed because it was detected as having been flapping between different states (28.3% change > 20.0% threshold).  When the host state stabilizes and the flapping stops, notifications will be re-enabled.
+}
+hostcomment {
+host_name=host1
+entry_type=2
+comment_id=100430
+source=0
+persistent=0
+entry_time=1401126253
+expires=0
+expire_time=0
+author=dferguson
+comment_data=This host has been scheduled for fixed downtime from 10-09-2032 07:37:13 to 10-09-2032 07:37:23.  Notifications for the host will not be sent out during that time period.
 }
 servicecomment {
 host_name=host1
 service_description=Dummy service
 entry_type=2
-comment_id=100426
+comment_id=100431
 source=0
 persistent=0
-entry_time=1401044299
+entry_time=1401126253
 expires=0
 expire_time=0
 author=dferguson
 comment_data=This service has been scheduled for fixed downtime from 10-09-2032 07:37:13 to 10-09-2032 07:37:21.  Notifications for the service will not be sent out during that time period.
 }
-hostcomment {
+servicedowntime {
 host_name=host1
-entry_type=2
-comment_id=100427
-source=0
-persistent=0
-entry_time=1401044299
-expires=0
-expire_time=0
+service_description=Dummy service
+comment_id=100431
+downtime_id=1110
+entry_time=1280913033
+start_time=1980913033
+flex_downtime_start=0
+end_time=1980913041
+triggered_by=0
+fixed=1
+duration=8
+is_in_effect=0
+start_notification_sent=0
 author=dferguson
-comment_data=This host has been scheduled for fixed downtime from 10-09-2032 07:37:13 to 10-09-2032 07:37:23.  Notifications for the host will not be sent out during that time period.
+comment=Test service downtime
 }
 hostdowntime {
 host_name=host1
@@ -522,21 +539,4 @@ is_in_effect=0
 start_notification_sent=0
 author=dferguson
 comment=Test host downtime
-}
-servicedowntime {
-host_name=host1
-service_description=Dummy service
-comment_id=100426
-downtime_id=1110
-entry_time=1280913033
-start_time=1980913033
-flex_downtime_start=0
-end_time=1980913041
-triggered_by=0
-fixed=1
-duration=8
-is_in_effect=0
-start_notification_sent=0
-author=dferguson
-comment=Test service downtime
 }
